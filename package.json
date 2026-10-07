@@ -1,0 +1,51 @@
+{
+  "name": "@alexadiaconitei/obsidian-livesync-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "packageManager": "pnpm@12.8.2",
+  "engines": {
+    "node": ">=24.21.0 <25",
+    "pnpm": ">=12.8.2"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "node --import tsx --test --test-concurrency=1 test/*_test.ts",
+    "build": "tsx scripts/build.ts && tsc -p tsconfig.build.json",
+    "demo": "tsx scripts/demo.ts",
+    "test:browser": "tsx scripts/browser-tests.ts",
+    "start": "node build/src/main.js",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint src scripts test deploy/healthcheck.ts",
+    "audit": "pnpm audit --audit-level=moderate",
+    "verify": "pnpm run format:check && pnpm run lint && pnpm run check && pnpm test",
+    "release:check": "tsx scripts/release-check.ts",
+    "recovery-code": "tsx scripts/recovery-code.ts",
+    "screenshots": "tsx scripts/screenshots.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.3",
+    "@vrtmrz/livesync-commonlib": "0.1.34",
+    "hono": "4.13.13"
+  },
+  "devDependencies": {
+    "@phosphor-icons/core": "2.1.1",
+    "@playwright/test": "1.63.0",
+    "@tailwindcss/node": "4.3.3",
+    "@tailwindcss/oxide": "4.3.3",
+    "@types/node": "24.19.1",
+    "age-encryption": "0.3.1",
+    "esbuild": "0.28.2",
+    "eslint": "10.12.0",
+    "htmx.org": "2.0.11",
+    "octagonal-wheels": "0.1.54",
+    "prettier": "3.9.9",
+    "qrcode-generator": "1.5.2",
+    "tailwindcss": "4.3.3",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.1"
+  }
+}

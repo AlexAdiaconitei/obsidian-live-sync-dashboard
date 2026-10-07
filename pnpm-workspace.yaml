@@ -1,0 +1,26 @@
+packages:
+  - .
+
+# Supply-chain policy: versions must be published at least 7 days (in minutes).
+minimumReleaseAge: 10080
+minimumReleaseAgeStrict: true
+minimumReleaseAgeIgnoreMissingTime: false
+# Exceptions need a reason and a removal date.
+minimumReleaseAgeExclude: []
+
+saveExact: true
+savePrefix: ""
+
+# Reject versions whose provenance is weaker than an earlier release.
+trustPolicy: no-downgrade
+trustPolicyIgnoreAfter: 525600
+
+engineStrict: true
+
+# Install scripts stay disabled; native binaries come from optional platform packages.
+allowBuilds:
+  esbuild: false
+
+overrides:
+  pouchdb-core>uuid: 11.1.1
+  pouchdb-utils>uuid: 11.1.1
