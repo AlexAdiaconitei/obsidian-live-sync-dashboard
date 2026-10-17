@@ -1,0 +1,240 @@
+services:
+  ts:
+    image: tailscale/tailscale:v1.102.5@sha256:c507f3a2a6ab1cabd8d809b98edeb41edbd5c3fb6ad9632ffd098b4c7d0b4065
+    hostname: ${TS_HOSTNAME:-notes}
+    restart: unless-stopped
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY:?Set TS_AUTHKEY}
+      TS_EXTRA_ARGS: --advertise-tags=tag:notes
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/serve.json
+      TS_USERSPACE: "true"
+      TS_AUTH_ONCE: "true"
+      TS_ENABLE_HEALTH_CHECK: "true"
+      TS_LOCAL_ADDR_PORT: 127.0.0.1:9002
+    volumes:
+      - ts-state:/var/lib/tailscale
+    configs:
+      - source: serve
+        target: /config/serve.json
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:9002/healthz]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+  couchdb:
+    image: couchdb:3.5.2@sha256:5fc596110eac7f412173a7d9de14f70aa5d3e816790fb6e70642755d4a4cf464
+    entrypoint:
+      [
+        /bin/bash,
+        -c,
+        "cp /config/livesync.ini /opt/couchdb/etc/local.d/10-livesync.ini && exec /docker-entrypoint.sh /opt/couchdb/bin/couchdb",
+      ]
+    # Trusted containers only. Namespace peers can forge panel identity headers.
+    # See https://alexadiaconitei.github.io/obsidian-live-sync-dashboard/docs/reference/security/#shared-network-namespace
+    network_mode: service:ts
+    depends_on:
+      ts:
+        condition: service_healthy
+        restart: true
+    restart: unless-stopped
+    environment:
+      COUCHDB_USER: ${COUCHDB_USER:?Set COUCHDB_USER}
+      COUCHDB_PASSWORD: ${COUCHDB_PASSWORD:?Set COUCHDB_PASSWORD}
+    volumes:
+      - couchdb-data:/opt/couchdb/data
+      - couchdb-config:/opt/couchdb/etc/local.d
+    configs:
+      - source: couchdb
+        target: /config/livesync.ini
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 30s
+    mem_limit: 1g
+    healthcheck:
+      test:
+        [
+          CMD-SHELL,
+          'curl --fail --silent --user "$$COUCHDB_USER:$$COUCHDB_PASSWORD" http://127.0.0.1:5984/_up > /dev/null',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+  panel:
+    image: ${PANEL_IMAGE:?Set published GHCR panel image or digest}
+    pull_policy: always
+    # Trusted containers only. Namespace peers can forge panel identity headers.
+    # See https://alexadiaconitei.github.io/obsidian-live-sync-dashboard/docs/reference/security/#shared-network-namespace
+    network_mode: service:ts
+    depends_on:
+      ts:
+        condition: service_healthy
+        restart: true
+      couchdb:
+        condition: service_healthy
+        restart: true
+      backup:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    user: "1000:1000"
+    environment:
+      COUCHDB_URL: http://127.0.0.1:5984
+      COUCHDB_USER: ${COUCHDB_USER}
+      COUCHDB_PASSWORD: ${COUCHDB_PASSWORD}
+      PUBLIC_COUCHDB_URL: https://${TS_FQDN:?Set full Tailscale DNS name}
+      PUBLIC_ADMIN_URL: https://${TS_FQDN:?Set full Tailscale DNS name}:8443
+      PUBLIC_SETUP_URL: https://${TS_FQDN:?Set full Tailscale DNS name}:9443
+      PANEL_ADMINS: ${PANEL_ADMINS:?Set administrator Tailscale logins}
+      PANEL_CSRF_SECRET: ${PANEL_CSRF_SECRET:?Set CSRF secret}
+      PANEL_DB: ${PANEL_DB:-livesync_dashboard}
+      INSTANCE_QUOTA_GIB: ${INSTANCE_QUOTA_GIB:-0}
+      DEFAULT_USER_QUOTA_GIB: ${DEFAULT_USER_QUOTA_GIB:-0}
+      QUOTA_RECOVER_PENDING: ${QUOTA_RECOVER_PENDING:-0}
+      GOOGLE_DRIVE_CLIENT_ID: ${GOOGLE_DRIVE_CLIENT_ID:-}
+      GOOGLE_DRIVE_CLIENT_SECRET: ${GOOGLE_DRIVE_CLIENT_SECRET:-}
+      GOOGLE_DRIVE_TOKEN_KEY: ${GOOGLE_DRIVE_TOKEN_KEY:-}
+      GOOGLE_DRIVE_PICKER_API_KEY: ${GOOGLE_DRIVE_PICKER_API_KEY:-}
+      GOOGLE_DRIVE_PROJECT_NUMBER: ${GOOGLE_DRIVE_PROJECT_NUMBER:-}
+      PERSONAL_BACKUP_WORK_DIR: /app/backup-work
+      BACKUP_STATE_DIR: /backup/status
+      BACKUP_REQUESTS_DIR: /backup/requests
+      BACKUP_MAX_AGE_HOURS: ${BACKUP_MAX_AGE_HOURS:-26}
+    volumes:
+      - personal-backup-work:/app/backup-work
+      - backup-status:/backup/status:ro
+      - backup-requests:/backup/requests
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 1
+  backup:
+    image: ${BACKUP_IMAGE:?Set published GHCR backup image or digest}
+    pull_policy: always
+    restart: unless-stopped
+    read_only: true
+    environment:
+      TZ: ${TZ:-UTC}
+      AGE_RECIPIENT: ${AGE_RECIPIENT:?Set public age recipient}
+      RCLONE_CONF_B64: ${RCLONE_CONF_B64:-}
+      RCLONE_REMOTE: ${RCLONE_REMOTE:?Set rclone destination}
+      BACKUP_CRON: ${BACKUP_CRON:-30 3 * * *}
+      RETENTION_DAYS: ${RETENTION_DAYS:-30}
+      PUSH_URL: ${PUSH_URL:-}
+    volumes:
+      - couchdb-data:/data:ro
+      - rclone-conf:/config/rclone
+      - backup-status:/backup/status
+      - backup-requests:/backup/requests
+      - backup-work:/work
+    tmpfs: ["/run:size=16m,mode=0755", "/tmp:size=16m,mode=1777"]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 1
+    healthcheck:
+      test:
+        [
+          CMD-SHELL,
+          'test -s /backup/status/status.json && test -s /run/crond.pid && kill -0 "$$(cat /run/crond.pid)"',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+  # Optional second destination with its own schedule and retention. Start it with
+  # COMPOSE_PROFILES=secondary-backup. The panel shows only the primary worker.
+  backup-secondary:
+    profiles: [secondary-backup]
+    image: ${BACKUP_IMAGE:?Set published GHCR backup image or digest}
+    pull_policy: always
+    restart: unless-stopped
+    read_only: true
+    environment:
+      TZ: ${TZ:-UTC}
+      AGE_RECIPIENT: ${AGE_RECIPIENT:?Set public age recipient}
+      RCLONE_CONF_B64: ${SECONDARY_RCLONE_CONF_B64:-}
+      RCLONE_REMOTE: ${SECONDARY_RCLONE_REMOTE:-}
+      BACKUP_CRON: ${SECONDARY_BACKUP_CRON:-30 5 * * 0}
+      RETENTION_DAYS: ${SECONDARY_RETENTION_DAYS:-180}
+      PUSH_URL: ${SECONDARY_PUSH_URL:-}
+    volumes:
+      - couchdb-data:/data:ro
+      - secondary-rclone-conf:/config/rclone
+      - secondary-backup-status:/backup/status
+      - secondary-backup-requests:/backup/requests
+      - secondary-backup-work:/work
+    tmpfs: ["/run:size=16m,mode=0755", "/tmp:size=16m,mode=1777"]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 1
+    healthcheck:
+      test:
+        [
+          CMD-SHELL,
+          'test -s /backup/status/status.json && test -s /run/crond.pid && kill -0 "$$(cat /run/crond.pid)"',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+volumes:
+  personal-backup-work:
+  ts-state:
+  couchdb-data:
+  couchdb-config:
+  rclone-conf:
+  backup-status:
+  backup-requests:
+  backup-work:
+  secondary-rclone-conf:
+  secondary-backup-status:
+  secondary-backup-requests:
+  secondary-backup-work:
+configs:
+  serve:
+    content: |
+      {
+        "TCP": { "443": { "HTTPS": true }, "8443": { "HTTPS": true }, "9443": { "HTTPS": true } },
+        "Web": {
+          "$${TS_CERT_DOMAIN}:443": { "Handlers": { "/": { "Proxy": "http://127.0.0.1:8082" } } },
+          "$${TS_CERT_DOMAIN}:8443": { "Handlers": { "/": { "Proxy": "http://127.0.0.1:8080" } } },
+          "$${TS_CERT_DOMAIN}:9443": { "Handlers": { "/": { "Proxy": "http://127.0.0.1:8081" } } }
+        },
+        "AllowFunnel": {
+          "$${TS_CERT_DOMAIN}:443": false,
+          "$${TS_CERT_DOMAIN}:8443": false,
+          "$${TS_CERT_DOMAIN}:9443": false
+        }
+      }
+  couchdb:
+    content: |
+      [couchdb]
+      single_node = true
+      max_document_size = 50000000
+      [cluster]
+      n = 1
+      [chttpd]
+      bind_address = 127.0.0.1
+      require_valid_user = true
+      max_http_request_size = 4294967296
+      enable_cors = true
+      [chttpd_auth_lockout]
+      ; Every login, through the panel or the sync gateway, reaches CouchDB and counts here.
+      mode = enforce
+      threshold = 5
+      max_lifetime = 300000
+      [chttpd_auth]
+      require_valid_user = true
+      [httpd]
+      WWW-Authenticate = Basic realm="couchdb"
+      enable_cors = true
+      [cors]
+      ; Obsidian desktop, iOS and Android. Android serves the app from http://localhost.
+      origins = app://obsidian.md,capacitor://localhost,http://localhost
+      credentials = true
+      headers = accept, authorization, content-type, origin, referer
+      methods = GET, PUT, POST, HEAD, DELETE
+      max_age = 3600

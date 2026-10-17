@@ -1,0 +1,14 @@
+// Merge into your existing policy. Grants add up, so an existing broad grant still applies.
+// The shared network account gets only ports 443 and 9443. Owners sign in with their own accounts.
+{
+  "groups": {
+    "group:livesync-admins": ["admin@example.com"],
+    "group:livesync-users": ["admin@example.com", "shared-users@example.com"]
+  },
+  "tagOwners": {"tag:notes": ["group:livesync-admins"]},
+  "grants": [
+    {"src": ["group:livesync-users"], "dst": ["tag:notes"], "ip": ["tcp:443", "tcp:9443"]},
+    {"src": ["group:livesync-admins"], "dst": ["tag:notes"], "ip": ["tcp:8443"]},
+    {"src": ["tag:vps"], "dst": ["tag:notes"], "ip": ["tcp:443"]}
+  ]
+}

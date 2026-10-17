@@ -1,0 +1,8 @@
+services:
+  backup:
+    networks: [default, dokploy-network]
+  backup-secondary:
+    networks: [default, dokploy-network]
+networks:
+  dokploy-network:
+    external: true
