@@ -1,0 +1,53 @@
+name: CI
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      TEST_COUCHDB_URL: http://127.0.0.1:15984
+      TEST_COUCHDB_USER: adminfixture
+      TEST_COUCHDB_PASSWORD: fixture-password-long
+      BROWSER_ENGINES: chromium,firefox,webkit
+    services:
+      couchdb:
+        image: couchdb:3.5.2@sha256:5fc596110eac7f412173a7d9de14f70aa5d3e816790fb6e70642755d4a4cf464
+        env:
+          COUCHDB_USER: adminfixture
+          COUCHDB_PASSWORD: fixture-password-long
+        ports: [15984:5984]
+        options: >-
+          --health-cmd "bash -c ':> /dev/tcp/127.0.0.1/5984'"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run audit
+      - name: Bootstrap disposable local fixture
+        run: bash scripts/test-fixture.sh
+      - name: Install age for personal archive recovery tests
+        run: sudo apt-get update && sudo apt-get install -y age
+      - run: pnpm run verify
+      - run: pnpm run build
+      - name: Install all supported browser engines
+        run: pnpm exec playwright install --with-deps chromium firefox webkit
+      - run: pnpm run test:browser
+      - run: docker build --target production -t livesync-dashboard:smoke .
+      - run: bash scripts/smoke-image.sh livesync-dashboard:smoke
+      - run: bash scripts/smoke-personal-backups.sh livesync-dashboard:smoke
+      - run: docker build -t livesync-backup:test deploy/backup
+      - run: bash deploy/backup/test-worker.sh livesync-backup:test
+      - run: bash scripts/smoke-compose.sh livesync-dashboard:smoke livesync-backup:test
+      - run: bash scripts/smoke-compose.sh livesync-dashboard:smoke livesync-backup:test deploy/compose.dokploy.yml
+      - run: bash scripts/audit-images.sh livesync-dashboard:smoke livesync-backup:test

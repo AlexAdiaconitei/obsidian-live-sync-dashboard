@@ -1,0 +1,148 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    env:
+      TEST_COUCHDB_URL: http://127.0.0.1:15984
+      TEST_COUCHDB_USER: adminfixture
+      TEST_COUCHDB_PASSWORD: fixture-password-long
+      BROWSER_ENGINES: chromium,firefox,webkit
+    services:
+      couchdb:
+        image: couchdb:3.5.2@sha256:5fc596110eac7f412173a7d9de14f70aa5d3e816790fb6e70642755d4a4cf464
+        env:
+          COUCHDB_USER: adminfixture
+          COUCHDB_PASSWORD: fixture-password-long
+        ports: [15984:5984]
+        options: >-
+          --health-cmd "bash -c ':> /dev/tcp/127.0.0.1/5984'"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      panel_digest: ${{ steps.publish.outputs.panel_digest }}
+      backup_digest: ${{ steps.publish.outputs.backup_digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run audit
+      - id: version
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version=$(node --import tsx scripts/release-check.ts "$REF_NAME")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          bash scripts/changelog-section.sh "$version" > "$RUNNER_TEMP/notes.md"
+      - name: Bootstrap disposable local fixture
+        run: bash scripts/test-fixture.sh
+      - name: Install age for personal archive recovery tests
+        run: sudo apt-get update && sudo apt-get install -y age
+      - run: pnpm run verify
+      - run: pnpm run build
+      - name: Install all supported browser engines
+        run: pnpm exec playwright install --with-deps chromium firefox webkit
+      - run: pnpm run test:browser
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - name: Build panel and worker before publishing
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          docker build --target production --label "org.opencontainers.image.version=$VERSION" --label "org.opencontainers.image.revision=$GITHUB_SHA" --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" -t livesync-dashboard:release .
+          docker build --label "org.opencontainers.image.version=$VERSION" --label "org.opencontainers.image.revision=$GITHUB_SHA" --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" -t livesync-backup:release deploy/backup
+      - run: bash scripts/smoke-image.sh livesync-dashboard:release
+      - run: bash scripts/smoke-personal-backups.sh livesync-dashboard:release
+      - run: bash deploy/backup/test-worker.sh livesync-backup:release
+      - run: bash scripts/smoke-compose.sh livesync-dashboard:release livesync-backup:release
+      - run: bash scripts/smoke-compose.sh livesync-dashboard:release livesync-backup:release deploy/compose.dokploy.yml
+      - run: bash scripts/audit-images.sh livesync-dashboard:release livesync-backup:release
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish tested images
+        id: publish
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          IMAGE: ${{ steps.version.outputs.image }}
+          PUBLISH_STABLE_ALIASES: ${{ vars.PUBLISH_STABLE_ALIASES }}
+        run: |
+          docker tag livesync-dashboard:release "$IMAGE:$VERSION"
+          docker tag livesync-backup:release "$IMAGE-backup:$VERSION"
+          docker push "$IMAGE:$VERSION"
+          docker push "$IMAGE-backup:$VERSION"
+          panel_digest=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{.Manifest.Digest}}')
+          backup_digest=$(docker buildx imagetools inspect "$IMAGE-backup:$VERSION" --format '{{.Manifest.Digest}}')
+          [[ "$panel_digest" =~ ^sha256:[a-f0-9]{64}$ && "$backup_digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          docker pull "$IMAGE@$panel_digest"
+          docker pull "$IMAGE-backup@$backup_digest"
+          echo "panel_digest=$panel_digest" >> "$GITHUB_OUTPUT"
+          echo "backup_digest=$backup_digest" >> "$GITHUB_OUTPUT"
+          if [[ "$VERSION" != *-* && "$PUBLISH_STABLE_ALIASES" == 'true' ]]; then
+            for alias in "${VERSION%.*}" latest; do
+              docker tag livesync-dashboard:release "$IMAGE:$alias"
+              docker tag livesync-backup:release "$IMAGE-backup:$alias"
+              docker push "$IMAGE:$alias"
+              docker push "$IMAGE-backup:$alias"
+            done
+          fi
+  notes:
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Prepare Dokploy deployment files
+        env:
+          RELEASE_VERSION: ${{ needs.image.outputs.version }}
+          PANEL_DIGEST: ${{ needs.image.outputs.panel_digest }}
+          BACKUP_DIGEST: ${{ needs.image.outputs.backup_digest }}
+          DOKPLOY_OUTPUT_DIR: ${{ runner.temp }}/dokploy
+        run: |
+          export GHCR_REPOSITORY="${GITHUB_REPOSITORY,,}"
+          node --import tsx scripts/dokploy-bundle.ts
+      - name: Create or update notes from changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.image.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          bash scripts/changelog-section.sh "$VERSION" > "$RUNNER_TEMP/notes.md"
+          prerelease=false
+          [[ "$VERSION" != *-* ]] || prerelease=true
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --title "Obsidian LiveSync Dashboard $VERSION" --notes-file "$RUNNER_TEMP/notes.md" --prerelease="$prerelease"
+          else
+            flags=()
+            [[ "$prerelease" == false ]] || flags+=(--prerelease)
+            gh release create "$tag" --title "Obsidian LiveSync Dashboard $VERSION" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag "${flags[@]}"
+          fi
+          gh release upload "$tag" "$RUNNER_TEMP/dokploy/compose.dokploy.yml" "$RUNNER_TEMP/dokploy/compose.dokploy.existing.yml" "$RUNNER_TEMP/dokploy/dokploy.env.example" --clobber
