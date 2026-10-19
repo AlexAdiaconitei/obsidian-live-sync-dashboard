@@ -1,0 +1,78 @@
+---
+title: Development
+description: Stack, checks, integration tests, releases and this documentation site.
+---
+
+The backend is Node.js 24, Hono and TypeScript. The server renders the pages, with htmx, browser
+scripts served by the panel and Tailwind CSS. Production runs the compiled JavaScript under Node's
+permission model. Scripts and tests run through `tsx`.
+
+```sh
+pnpm install --frozen-lockfile
+pnpm run verify   # format, lint, types, tests
+pnpm run audit
+pnpm run build
+```
+
+## Integration tests
+
+CouchDB integration tests are skipped unless `TEST_COUCHDB_URL`, `TEST_COUCHDB_USER` and
+`TEST_COUCHDB_PASSWORD` are set. Use a disposable container:
+
+```sh
+docker run -d --rm --name lsd-fix-couch -p 127.0.0.1:25984:5984 \
+  -e COUCHDB_USER=adminfixture -e COUCHDB_PASSWORD=fixture-password-long couchdb:3.5.2
+export TEST_COUCHDB_URL=http://127.0.0.1:25984
+export TEST_COUCHDB_USER=adminfixture
+export TEST_COUCHDB_PASSWORD=fixture-password-long
+bash scripts/test-fixture.sh
+pnpm run verify
+```
+
+Browser tests run separately:
+
+```sh
+pnpm exec playwright install --with-deps chromium firefox webkit
+pnpm run test:browser
+```
+
+Install `age` and `age-keygen` on PATH for the encryption tests.
+
+## Dependency policy
+
+`package.json` pins pnpm in `packageManager` and every dependency to an exact version.
+`pnpm-workspace.yaml` holds the supply-chain policy:
+
+- `minimumReleaseAge: 10080` with `minimumReleaseAgeStrict` installs no version younger than seven
+  days, including versions already in the lockfile, and rejects versions without a publish time.
+  Exceptions go in `minimumReleaseAgeExclude`, each with a reason and a removal date.
+- `trustPolicy: no-downgrade` rejects a version whose provenance is weaker than an earlier
+  release's.
+- `allowBuilds` keeps install scripts disabled. esbuild and Tailwind use the binaries from their
+  platform packages, so no lifecycle script needs to run.
+- `overrides` pins PouchDB's UUID dependency to the patched 11.1.1.
+
+The container build installs the same pnpm with `scripts/bootstrap-pnpm.sh`, which then removes the
+base image's npm, Yarn and Corepack. CI uses `pnpm/action-setup`, which reads `packageManager`.
+
+## Releases
+
+`package.json` holds the version and `CHANGELOG.md` the notes. Pushing a matching `vX.Y.Z` tag runs
+the release workflow: it tests, audits and smoke-tests both images, pushes them to GHCR, then
+creates the GitHub release with the Dokploy assets.
+
+## This site
+
+The documentation lives in `docs/site`, a separate Next.js and Fumadocs project with its own
+lockfile:
+
+```sh
+cd docs/site
+pnpm install
+pnpm dev     # http://localhost:3000
+pnpm build   # static export in out/
+```
+
+Pushing changes under `docs/` to `main` deploys the site to GitHub Pages. The screenshots in
+`docs/site/public/media` come from the demo: start `pnpm run demo`, then run
+`pnpm run screenshots`.

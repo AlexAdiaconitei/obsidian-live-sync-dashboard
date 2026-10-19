@@ -1,0 +1,72 @@
+---
+title: People and vaults
+description: Create, disable and reset people, add vaults, and repair interrupted provisioning.
+---
+
+Administrators manage accounts in **Administration → People**. Owners create vaults in **Your
+vaults**.
+
+## Create a person
+
+Create an account with a display name and a CouchDB username. Then create an invitation on the
+account's page and send the link to the owner privately. The link works once and expires after 24
+hours. A new invitation replaces the previous one.
+
+The owner chooses or generates a password and can download the account .txt. They sign in with the
+CouchDB username and that sync password. On **Your vaults**, **Add vault** asks for a name. The
+panel creates the database, its permissions, the write guard and the recovery code, then opens the
+device setup page.
+
+Tailscale controls network access, and several owners may share one Tailscale account. Only
+administrators sign in through their Tailscale identity. Owners always sign in with their CouchDB
+credentials.
+
+## Person page
+
+<Shot
+  name="admin-person"
+  alt="A person's page: status and actions, quota, the vault list and the create vault form"
+/>
+
+| Action                  | Effect                                                                                                    |
+| ----------------------- | --------------------------------------------------------------------------------------------------------- |
+| Disable access          | Removes the account from its vaults' access lists and saves the old lists. The data stays.                |
+| Restore access          | Puts back the access lists saved when access was disabled.                                                |
+| Require password reset  | Revokes vault access and replaces the CouchDB password. Create an invitation so the owner can choose a new one. |
+| Save quota              | Sets this person's limit in GiB. Empty or `0` removes the individual limit.                               |
+| Add vault               | Adds another vault with its own database and recovery code.                                               |
+| Save recovery code      | Shown only for adopted vaults without one. See [Find a recovery code](/docs/guides/recovery-code).        |
+
+## Sessions and passwords
+
+An owner session ends after one hour without activity, or 12 hours after sign-in. Changing or
+resetting the password, disabling access and signing out end all earlier sessions of the account.
+After a sync password change, update it on every Obsidian device that uses the account. Keep each
+vault's original encryption passphrase. The panel cannot recover it.
+
+## Interrupted provisioning
+
+An operation can stop after it creates a vault database but before it marks the database as owned.
+The panel does not assume that the database belongs to the operation. Instead, the vault list shows
+it with a reconciliation form.
+
+First inspect the database, the pending operation and the registry. Then type the exact database
+name. Before it writes the ownership marker, the server checks the pending journal, the account and
+database claims, that the user is not an administrator, that the remote is empty, that the version
+is compatible and that the permissions are the expected restrictive ones. The confirmation goes
+into the activity log.
+
+Other interrupted permission and status changes resume at startup. The panel never stores
+passwords to replay them. If a step still needs one, submit the original form again.
+
+<Callout type="warn">
+  This repairs one specific gap in vault creation. It never lets you claim an unrelated database.
+  Do not delete resources or edit `_security` by hand to force progress.
+</Callout>
+
+## Activity
+
+**Activity** lists every account creation, adoption, password reset, URI issued, recovery code
+registered and backup request, with the actor, the target and the result.
+
+<Shot name="admin-events" alt="The Activity page: a table of audit events with time, actor, action, target and result" />

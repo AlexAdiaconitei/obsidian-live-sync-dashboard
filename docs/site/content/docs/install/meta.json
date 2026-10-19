@@ -1,0 +1,4 @@
+{
+  "title": "Install",
+  "pages": ["prepare", "dokploy", "docker-compose", "existing-server", "tailscale", "updating"]
+}

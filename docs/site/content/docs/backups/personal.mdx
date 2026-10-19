@@ -1,0 +1,244 @@
+---
+title: Personal backups
+description: Each owner exports their own vaults, encrypted to their own key, to their own Google Drive.
+---
+
+Owners connect their own Google account in **Your backups**. The panel exports only that owner's
+vaults, encrypts the archive to the owner's public age recipient and uploads it to the owner's
+Drive. The administrator configures the Google application once, but never chooses or sees where
+owners store their backups.
+
+<Shot
+  name="owner-backups"
+  alt="The owner's backups page with the Google Drive connection, age recipient and schedule settings"
+/>
+
+## Configure the server once
+
+<Steps>
+<Step>
+
+Create a Google Cloud project, enable the Google Drive API and open **Google Auth Platform**:
+
+- **Branding**: the app name and the support and contact emails.
+- **Audience**: user type **External**. **Internal** admits only the accounts of one Workspace
+  organization, so owners with their own Google accounts could not connect.
+- **Data Access**: only `https://www.googleapis.com/auth/drive.file`. This scope is not sensitive,
+  and gives access only to files the app creates or the owner selects.
+
+</Step>
+<Step>
+
+In **Clients**, create an OAuth client of type **Web application**, with the redirect URI
+`${PUBLIC_SETUP_URL}/backups/google/callback`. Include the owner portal's port, usually 9443. For
+Dokploy, the URI is `https://${TS_FQDN}:9443/backups/google/callback`.
+
+Google redirects the owner's browser, not the server, so the owner's device must be on the
+tailnet. Do not enable Funnel for this. Check that Google accepts your hostname and port before
+you deploy.
+
+</Step>
+<Step>
+
+Generate a token key:
+
+```sh
+node --input-type=module -e 'import {randomBytes} from "node:crypto"; console.log(randomBytes(32).toString("base64"))'
+```
+
+Set `GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_CLIENT_SECRET` and `GOOGLE_DRIVE_TOKEN_KEY`. Store the
+token key with the other deployment secrets and keep it across upgrades. If you lose it, every
+owner has to connect Google again.
+
+</Step>
+<Step>
+
+The folder picker is optional. To use it, enable the Google Picker API, add the owner portal's
+origin as a JavaScript origin of the client, and set `GOOGLE_DRIVE_PICKER_API_KEY` and
+`GOOGLE_DRIVE_PROJECT_NUMBER` (the project number, not the project ID). Restrict the key to the
+Picker and Drive APIs, and to the websites `${PUBLIC_SETUP_URL}/*` and `https://docs.google.com/*`.
+This browser key is public by design. The client secret stays on the server.
+
+</Step>
+<Step>
+
+Redeploy. Source installations also need `age` on PATH. The Compose files mount the
+`personal-backup-work` volume, owned by UID 1000, for the encrypted archives while they upload.
+With Google configured, the panel may start `age` as a child process and read and write that
+volume. Node cannot limit that permission to one executable. Without Google configured, the panel
+keeps it denied.
+
+</Step>
+<Step>
+
+Publish the app. While it is in **Testing**, only the accounts listed under **Audience → Test
+users** can connect, and their access expires seven days after they consent. Choose **Publish app**
+so backups keep running.
+
+Google asks for the redirect domain under **Authorized domains**, verified in Search Console. A
+`ts.net` hostname cannot be verified there, because Tailscale controls its DNS. Without brand
+verification, the consent screen shows the domain instead of your app name, and an app for
+personal use (under 100 users) can run with the unverified-app warning. If Google blocks
+publishing or the redirect, serve the owner portal from a domain you control.
+
+</Step>
+</Steps>
+
+With no Google variables set, the feature is off. With only some of them set, the panel refuses to
+start. The panel needs outbound HTTPS to `accounts.google.com`, `oauth2.googleapis.com` and
+`www.googleapis.com`. Browsers that use the picker also need `apis.google.com`, `www.gstatic.com`
+and `docs.google.com`.
+
+Run a single panel instance. The OAuth state lives in memory for ten minutes, so if the panel
+restarts during consent, the owner has to start connecting again. The picker opens on a page of its
+own, so Google's scripts never load on the pages where owners type encryption secrets.
+
+### Check the deployment
+
+With one test owner on the tailnet:
+
+1. Connect Google from **Your backups**. The consent screen asks only for the files the app creates
+   or you open with it, and `obsidian-livesync-backups` appears in My Drive.
+2. With the picker configured, choose another folder, cancel once, then go back to the default.
+3. Request a backup, download the `.age` file and open it in **Recover your vaults** with the
+   recovery key and the vault passphrase. The notes ZIP must contain your notes.
+4. Disconnect. The app disappears from the account's
+   [third-party connections](https://myaccount.google.com/connections), or the status shows
+   `drive_revoke_failed`.
+5. Connect again, turn on automatic backups, and check eight days later that they still succeed.
+   An app left in Testing fails by then.
+
+## Owner setup
+
+<Steps>
+<Step>
+
+Choose **Create recovery key**. The browser generates an age identity, downloads it as
+`livesync-recovery-key.txt` and fills in its public `age1…` key. Keep the file in a password manager
+or offline. It never reaches the server, and nobody can open your backups without it. The page asks
+you to confirm that you saved it.
+
+You can also use an identity you already have, by pasting only its `age1…` public key. To create
+one with `age-keygen`:
+
+```sh
+age-keygen -o livesync-recovery.txt
+age-keygen -y livesync-recovery.txt
+```
+
+</Step>
+<Step>
+
+Connect Google. The panel creates the default folder `obsidian-livesync-backups` in My Drive. With
+the picker configured, you can choose another folder you own. The panel refuses shared drives and
+folders owned by other people. A new folder applies to later uploads only, and connecting again
+creates a new default folder.
+
+The picker is a Google iframe that needs your Google session cookies. It works only if you are
+signed in to Google in that browser and the browser allows third-party cookies on the owner portal.
+Otherwise Google shows **Sign in to your Google Account** and opens a popup whose **Select** button
+does nothing. Allow third-party cookies for the owner portal only:
+
+| Browser      | Setting                                                                                      |
+| ------------ | -------------------------------------------------------------------------------------------- |
+| Brave        | Lion icon → **Advanced controls** → cookies **Allow all**, or lower Shields for the site      |
+| Chrome, Edge | Eye icon in the address bar → **Third-party cookies** → **Allow**                            |
+| Firefox      | Shield icon → turn off **Enhanced Tracking Protection** for the site                         |
+| Safari       | **Settings → Privacy** → clear **Prevent cross-site tracking** (there is no per-site option) |
+
+Private windows block third-party cookies by default. Without the picker, backups keep going to
+the default folder.
+
+</Step>
+<Step>
+
+Save the recipient, the retention (1 to 3650 days, 30 by default) and whether to back up
+automatically. An automatic backup runs 24 hours after the last successful one. After a failure,
+it retries an hour later. The panel builds one archive at a time for all owners, so a requested
+backup may wait about a minute.
+
+</Step>
+<Step>
+
+Request a backup, check the file in Drive and open it in **Recover your vaults** before you rely on
+it.
+
+</Step>
+</Steps>
+
+A failed upload skips retention and leaves the previous backup in place. Retention moves only this
+owner's backups in the current folder to the Drive trash, which still uses storage until it is
+emptied. The panel sends no email or push notifications yet.
+
+Disconnecting stops scheduled backups and deletes the stored token, but keeps the archives. The
+panel also asks Google to revoke access. If the status shows `drive_revoke_failed`, remove the app
+from your Google account's third-party connections yourself. Disconnecting still works if the
+token key was lost or Google is down. Disabling a person stops their requested and scheduled
+backups.
+
+## What is in the archive
+
+`obsidian-vaults-<timestamp>-<id>.ndjson.gz.age` starts with a manifest of the owner's vaults,
+including their recovery codes. Then come every current leaf revision, conflict, deletion and
+attachment.
+
+Each vault also has a `local` record holding `_local/obsidian_livesync_sync_parameters`, the salt
+LiveSync derives its end-to-end encryption keys from. Without it, the passphrase alone cannot
+decrypt the notes once the server is gone.
+
+The archive does not include `_users`, the panel registry, other owners' vaults, Google tokens,
+infrastructure settings or other `_local` documents. The panel never writes an unencrypted archive
+to disk. The encrypted file is limited to 1 GiB and 30 minutes of encryption. For larger exports,
+use the instance backup.
+
+The export reads the vaults while they stay live, with no transaction across vaults, so stop sync
+if you need a consistent point in time. If CouchDB compacts away a revision during the export, the
+export fails instead of finishing incomplete.
+
+## Recover your notes
+
+**Your backups → Recover your vaults** opens a backup in the browser. Choose the `.age` file and
+your recovery key file, or paste the key, then enter each vault's LiveSync encryption passphrase.
+**Download notes (.zip)** rebuilds every live note and attachment from its winning revision, in one
+folder per vault that Obsidian can open as a vault. Conflicting revisions, deleted files and hidden
+`.obsidian` files are left out. The page also opens the `vault.ndjson` from a vault recovery ZIP.
+Nothing you choose or type on this page is uploaded.
+
+The page reads vaults encrypted with LiveSync's current scheme (V2), which the panel's setup URIs
+use. A vault on the older scheme needs a CouchDB restore.
+
+## Restore into CouchDB
+
+To rebuild the databases on a server instead, use **Download decrypted data for CouchDB** on the
+same page to save the `.ndjson.gz`, or decrypt with the age command line:
+
+```sh
+age -d -i /offline/livesync-recovery.txt -o /isolated/vaults.ndjson.gz backup.ndjson.gz.age
+gzip -dc /isolated/vaults.ndjson.gz > /isolated/vaults.ndjson
+head -n 1 /isolated/vaults.ndjson | jq .
+```
+
+Read the vault IDs, database names and recovery codes in the manifest. On a disposable CouchDB of
+the same version, create one empty database per vault with a restrictive `_security`. Do not import
+the manifest, and do not reuse production database names.
+
+In each database, first write the vault's `type: "local"` record to
+`_local/obsidian_livesync_sync_parameters`. Without that salt, LiveSync creates a new one and cannot
+decrypt the restored notes.
+
+Then send the vault's `type: "document"` records to the database's `_bulk_docs` with
+`new_edits: false`, keeping `_rev`, `_revisions`, `_deleted` and `_attachments`, and check every
+result. For a small archive:
+
+```sh
+jq -sc --arg vaultId '<vault ID from manifest>' \
+  '{new_edits:false,docs:[.[] | select(.type=="document" and .vaultId==$vaultId) | .doc]}' \
+  /isolated/vaults.ndjson > /isolated/import.json
+```
+
+This command loads the whole archive into memory. Import larger archives in batches.
+
+Check the document counts, conflicts, deletions and attachments. Give a disposable CouchDB user
+access, adopt the database on an isolated panel with the manifest's `idRecoveryCode`, and open it
+with the original LiveSync passphrase. The archive does not restore passwords, accounts or
+permissions. Delete the unencrypted files when you are done.

@@ -1,0 +1,47 @@
+---
+title: Adopt existing vaults
+description: Register databases and accounts that existed before the panel, without changing them.
+---
+
+**Administration → Adopt existing vaults** lists the CouchDB accounts and databases already on the
+server, with their permissions and any access warnings.
+
+<Shot
+  name="admin-inventory"
+  alt="The inventory page: CouchDB accounts and the permissions of each database"
+/>
+
+## Before adopting
+
+<Callout type="warn">
+  Take a backup and test it, then move every client to the panel's gateway URL. Adoption installs a
+  write guard, so clients that keep writing to CouchDB directly start failing.
+</Callout>
+
+## Register a vault
+
+Fill in the form with:
+
+- the person's display name and existing CouchDB username,
+- the database name, exactly as it is,
+- a label,
+- the vault's [recovery code](/docs/guides/recovery-code), if you have it.
+
+**Preview registration** shows what the panel will record. **Register existing vault** then
+records the person, or reuses the person who already has that CouchDB username. It also claims the
+database and installs the write guard.
+
+Adoption keeps:
+
+- the database names. CouchDB cannot rename a database, but the label in the panel can be anything.
+- the account passwords.
+- the `_security` memberships.
+
+It refuses accounts with global administrator roles, and databases another person has already
+claimed.
+
+## Adopting again
+
+You can submit the form again for a vault already registered to the same person. If the vault has
+no recovery code and the form has one, the panel stores it. The panel refuses a different code for
+a vault that already has one.

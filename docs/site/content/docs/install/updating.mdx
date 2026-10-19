@@ -1,0 +1,90 @@
+---
+title: Updating and rollback
+description: Move to a new release without losing volumes or the Tailscale node.
+---
+
+## Update
+
+<Steps>
+<Step>
+
+**Back up and read the notes.** Request an instance backup and check that it uploaded. Then read
+the [version notes](#version-notes) for every release between yours and the new one.
+
+</Step>
+<Step>
+
+**Point at the new version.**
+
+- **Dokploy:** copy `PANEL_IMAGE` and `BACKUP_IMAGE` from the new release's `dokploy.env.example`
+  into the Environment. If the release changed `compose.dokploy.yml`, paste the new file too.
+- **Docker Compose from source:** check out the release tag, for example `git checkout v1.0.0`.
+- **Docker Compose with prebuilt images:** set `PANEL_IMAGE` and `BACKUP_IMAGE` to the release's
+  digests, set both pull policies to `always`, and log the host in to GHCR if the packages are
+  private. Never use `latest`.
+
+Make any environment change the version notes ask for.
+
+</Step>
+<Step>
+
+**Recreate the whole stack**, so every service that shares the Tailscale network namespace starts
+again together.
+
+<Tabs items={['Dokploy', 'Compose from source', 'Compose with images']}>
+<Tab value="Dokploy">
+
+Choose **Deploy**. The command from [Create the service](/docs/install/dokploy#create-the-service)
+already has `--force-recreate --wait`.
+
+</Tab>
+<Tab value="Compose from source">
+
+```sh
+docker compose -p livesync --env-file deploy/.env -f deploy/compose.yml up -d --build --force-recreate --wait --wait-timeout 180
+```
+
+</Tab>
+<Tab value="Compose with images">
+
+```sh
+docker compose -p livesync --env-file deploy/.env -f deploy/compose.yml up -d --no-build --force-recreate --wait --wait-timeout 180
+```
+
+</Tab>
+</Tabs>
+
+For an [existing server](/docs/install/existing-server), use `compose.existing.yml` and its own
+project name. Only the panel image changes there.
+
+</Step>
+<Step>
+
+**Check.** All containers are healthy, both portals open, an owner can sign in, a test note syncs,
+and the monitors are green. A running process does not mean CouchDB is ready, so wait for the
+health checks.
+
+</Step>
+</Steps>
+
+<Callout type="error">
+  Never run `down --volumes` against production. Keep the same project or Dokploy app name, because
+  it prefixes the persistent volumes.
+</Callout>
+
+## Version notes
+
+Releases that need an action list it in an **Upgrade notes** section of the
+[changelog](https://github.com/AlexAdiaconitei/obsidian-live-sync-dashboard/blob/main/CHANGELOG.md).
+Read every section between your version and the new one before you update.
+
+## Rollback
+
+Roll back to the previous digests only if the releases in between did not change the registry
+schema. Their changelog entries say so when they do. Otherwise, restore the backup from before the
+upgrade on an isolated server first, and follow the release's migration notes.
+
+Do not roll back to an image without the quota gateway while the write guards are installed. The
+old direct endpoint would fail every write, and removing the guards removes the quota checks. To
+recover interrupted quota writes, use the
+[`QUOTA_RECOVER_PENDING` procedure](/docs/guides/quotas#interrupted-writes) instead.

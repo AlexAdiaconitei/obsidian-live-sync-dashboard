@@ -1,0 +1,98 @@
+---
+title: Storage quotas
+description: Per-person and per-instance limits, what counts, and how to recover an interrupted write.
+---
+
+## Configure limits
+
+| Variable                 | Sets                                                        | Changed by            |
+| ------------------------ | ----------------------------------------------------------- | --------------------- |
+| `INSTANCE_QUOTA_GIB`     | Active data across all ordinary CouchDB databases           | Environment + restart |
+| `DEFAULT_USER_QUOTA_GIB` | The starting limit for new people                           | Environment + restart |
+| Per-person quota         | One person's limit across all their vaults                  | The person's page     |
+
+Values take up to three decimal places. One GiB is 1,073,741,824 bytes, and `0` means no limit.
+`deploy/.env.example` uses 10 GiB for the instance and 1 GiB per person. A default or individual
+quota cannot be larger than a finite instance limit. Quotas do not reserve disk space. Changing the
+default leaves the limits already set on people as they are.
+
+The instance limit also covers databases the panel does not manage. System databases and the panel
+registry do not count.
+
+Each vault is a separate CouchDB database, so owners can create at most 20 vaults themselves.
+Administrators can add more from the person's page.
+
+## What counts
+
+The quota counts normalized UTF-8 document JSON, raw attachments and live conflict revisions.
+Encrypted LiveSync documents count at their synced size. Deleting data lowers the counted usage,
+even while CouchDB still keeps the old bytes on disk.
+
+Old revisions, indexes, database files and backups do not count, but they need disk space too.
+Leave free space and watch the real disk usage separately. Revision IDs and replication metadata
+do not count. Design documents and local checkpoints do not count towards personal quotas. The
+gateway limits checkpoints to 64 KiB per document and 1 MiB per database.
+
+## How it is enforced
+
+Clients sync through the gateway on port 443. Before it admits a write, the gateway checks the
+credentials, the vault access and both limits. It checks them again when a queued write is about to
+run, and refuses any write that would go over a limit. If you lower a limit below the current
+usage, the data stays and the gateway blocks further growth, but still accepts writes that reduce
+usage.
+
+The gateway needs CouchDB's final response for every write, so it rejects asynchronous `batch`
+requests and compressed request bodies. Sync request bodies are limited to 64 MiB, and login
+requests to 32 KiB. A bulk write with several revisions of one document reserves space for the
+largest case.
+
+Before admitting a write, the panel recounts that write's vault. It recounts the whole instance at
+startup, when someone opens a quota view, and on the first write after a minute without a full
+count. New unmanaged databases appear in the totals then.
+
+Managed vaults carry a validation guard that refuses direct writes from regular CouchDB users.
+Never remove it to get past a quota error.
+
+<Callout type="warn">
+  Keep CouchDB private, and run one panel per registry, because separate panels do not share the
+  admission lock. On an existing server, block sync clients from reaching CouchDB directly. Writes
+  by CouchDB administrators skip admission. Before you change managed data directly, stop the
+  gateway's writes, then restart the panel so it recounts usage before sync resumes.
+</Callout>
+
+## Interrupted writes
+
+The panel writes each admission to a journal before forwarding it. If the outcome of a write is
+unknown after a crash, or CouchDB answered `202`, sync writes return 503 and the quota views show a
+reconciliation warning until you resolve it. After a restart with a pending write, the panel keeps
+blocking writes rather than assume the write did not commit.
+
+<Steps>
+<Step>
+
+Stop the panel and any other trusted backend writer.
+
+</Step>
+<Step>
+
+Restart CouchDB, so that no request from the old process is still committing. Wait until it is
+healthy.
+
+</Step>
+<Step>
+
+Start the panel once with `QUOTA_RECOVER_PENDING=1`. It compares the pending admission with what
+CouchDB stored.
+
+</Step>
+<Step>
+
+Check readiness, usage and a test sync, then set `QUOTA_RECOVER_PENDING=0` and restart.
+
+</Step>
+</Steps>
+
+Do not delete quota documents by hand, and do not leave recovery on. For the complete stack, use
+the same Compose project and environment file for every step. On an existing server, its operator
+must restart CouchDB before recovery. If you cannot confirm the restart and that nothing else
+writes, keep the panel stopped.

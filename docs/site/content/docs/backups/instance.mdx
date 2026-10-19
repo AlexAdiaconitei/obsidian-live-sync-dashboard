@@ -1,0 +1,363 @@
+---
+title: Instance backups
+description: The backup worker, its schedule and status, and an isolated restore.
+---
+
+The backup worker is a separate container. It packs the CouchDB data directory into a gzip archive,
+encrypts it to a public age recipient and uploads it with rclone. It applies retention only after a
+successful upload. The panel never mounts the rclone tokens, an age private key, the CouchDB data
+volume or the Docker socket.
+
+<Shot
+  name="admin-backups"
+  alt="The Backups page: schedule, time zone, retention, last success and attempt, and the run history"
+/>
+
+## Configure
+
+| Variable               | Meaning                                                      |
+| ---------------------- | ------------------------------------------------------------ |
+| `AGE_RECIPIENT`        | Public `age1…` recipient. Keep the private key offline.      |
+| `RCLONE_CONF_B64`      | rclone configuration, base64. Seeds the volume once.         |
+| `RCLONE_REMOTE`        | Destination, for example `gdrive:homelab-backups/obsidian` or [S3](#store-archives-in-s3) |
+| `BACKUP_CRON`          | Five-field cron. Weekdays go from 0 (Sunday) to 6.           |
+| `TZ`                   | Time zone for the schedule                                   |
+| `RETENTION_DAYS`       | How long uploaded archives are kept                          |
+| `BACKUP_MAX_AGE_HOURS` | When the panel flags the last success as stale (default 26)  |
+| `PUSH_URL`             | Optional heartbeat URL, called after upload and retention    |
+
+The worker checks every cron field, range and step before it changes anything, so a bad schedule
+stops it at startup instead of never running. On restart, it writes the current schedule, time
+zone and retention to the status file and keeps the run history. `RCLONE_CONF_B64` only seeds the
+`rclone-conf` volume, and rclone keeps its refreshed tokens there. To replace a revoked token, see
+[Change the destination](#change-the-destination).
+
+If the `PUSH_URL` call fails, the run shows `notificationOk=false`, but the backup still counts as
+complete. A monitor that alerts when heartbeats stop keeps working while the panel is down.
+`BACKUP_MAX_AGE_HOURS` changes only the warning in the panel, not the schedule.
+
+## Store archives in S3
+
+The worker uploads with rclone, so it works with any S3-compatible storage, such as AWS S3, MinIO,
+Garage, Cloudflare R2, Backblaze B2 or Wasabi. age already encrypts the archives, so server-side
+encryption is optional.
+
+<Steps>
+<Step>
+
+Create the bucket and an access key used only by the worker. Do not reuse a key with wider rights.
+The worker needs to list, write, read and delete archives under its prefix, and to abort multipart
+uploads, because rclone uploads archives over 200 MiB in parts. For AWS, with bucket `my-backups` and prefix
+`obsidian`:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": ["arn:aws:s3:::my-backups"],
+      "Condition": { "StringLike": { "s3:prefix": ["obsidian/*"] } }
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
+      "Resource": ["arn:aws:s3:::my-backups/obsidian/*"]
+    }
+  ]
+}
+```
+
+With a bucket used only for these backups, drop the condition and use `arn:aws:s3:::my-backups/*`.
+
+Garage has no IAM policies. A key gets read, write or owner rights on a whole bucket. Give the
+worker its own bucket and a key with read and write rights only, which is enough for uploads,
+multipart uploads, listing and retention:
+
+```sh
+garage bucket create obsidian-backups
+garage key create obsidian-backup
+garage bucket allow --read --write obsidian-backups --key obsidian-backup
+```
+
+Garage has no bucket versioning or Object Lock, so the versioning advice below these steps does not
+apply to it.
+
+</Step>
+<Step>
+
+Write an `rclone.conf` with one `s3` remote:
+
+```ini
+[s3]
+type = s3
+provider = AWS
+access_key_id = AKIA…
+secret_access_key = …
+region = eu-west-1
+no_check_bucket = true
+```
+
+`no_check_bucket = true` stops rclone from trying to create the bucket, so the key does not need
+`s3:CreateBucket`. For other services, change `provider` and add `endpoint`:
+
+| Service          | `provider`   | `endpoint`                                   |
+| ---------------- | ------------ | -------------------------------------------- |
+| MinIO            | `Minio`      | `https://minio.example.com`                  |
+| Garage           | `Other`      | `http://192.168.1.10:3900`, region = `s3_region` in `garage.toml`, usually `garage` |
+| Cloudflare R2    | `Cloudflare` | `https://<account-id>.r2.cloudflarestorage.com`, region `auto` |
+| Backblaze B2     | `Other`      | `https://s3.<region>.backblazeb2.com`        |
+| Wasabi           | `Wasabi`     | `https://s3.<region>.wasabisys.com`          |
+
+The worker container must be able to reach the endpoint. Inside the container, `localhost` is not
+the host, even when the storage server runs on the same machine. If `region` differs from the
+server's, uploads fail with `SignatureDoesNotMatch`.
+
+Plain HTTP on a private network exposes neither the archives, which age encrypts, nor the secret
+key, which S3 request signing never sends. Use HTTPS when the endpoint is reachable from outside
+that network.
+
+</Step>
+<Step>
+
+Encode the file and set both variables. Keep the trailing slash when you use a prefix:
+
+```sh
+base64 -w0 rclone.conf   # macOS: base64 -i rclone.conf
+```
+
+```sh
+RCLONE_CONF_B64=<output of the command above>
+RCLONE_REMOTE=s3:my-backups/obsidian/
+```
+
+Without the slash, rclone first checks whether `obsidian` is itself an object. S3 refuses that
+check to a key limited to `obsidian/*`, so every run uploads the archive and then fails with
+`retention_failed`. With a bucket used only for backups, `RCLONE_REMOTE=s3:my-backups` is enough.
+
+</Step>
+<Step>
+
+Request a backup from the panel or run `backup.sh --manual`, then list the destination:
+
+```sh
+docker compose -p livesync --env-file deploy/.env -f deploy/compose.yml exec backup \
+  rclone --config /config/rclone/rclone.conf lsf s3:my-backups/obsidian/
+```
+
+</Step>
+</Steps>
+
+S3 keys do not expire or refresh, unlike Google Drive tokens. To rotate one, follow
+[Change the destination](#change-the-destination).
+
+With bucket versioning on, retention only adds delete markers, and the old archives keep using
+storage. Add a lifecycle rule that expires noncurrent versions after a few days. Object Lock in
+compliance mode protects the archives from someone who steals the worker's key, but retention
+cannot delete them before the lock ends. Set the lock period no longer than `RETENTION_DAYS`.
+
+## Change the destination
+
+`RCLONE_CONF_B64` only seeds an empty `rclone-conf` volume, so changing it later does nothing. To
+move an existing installation to another remote, or to rotate its key, replace the file in the
+volume, update `RCLONE_REMOTE` in the environment and recreate the worker:
+
+```sh
+docker compose -p livesync --env-file deploy/.env -f deploy/compose.yml cp rclone.conf backup:/config/rclone/rclone.conf
+docker compose -p livesync --env-file deploy/.env -f deploy/compose.yml exec backup chmod 600 /config/rclone/rclone.conf
+docker compose -p livesync --env-file deploy/.env -f deploy/compose.yml up -d backup
+```
+
+The archives already uploaded stay in the old destination, and retention no longer deletes them.
+Delete them yourself once the new destination holds a backup you have checked.
+
+## Two destinations
+
+One worker sends every archive to one remote, with one schedule and one retention. To keep a second
+copy somewhere else, for example daily to S3 for 14 days and weekly to Google Drive for 180 days,
+enable the optional `backup-secondary` worker in `compose.yml` or `compose.dokploy.yml`. It runs the
+same image with the same limits and reads the same `couchdb-data` volume read-only. It has its own
+volumes for the rclone configuration, the status, the requests and the work files.
+
+<Steps>
+<Step>
+
+Add the profile and the second destination to the environment. `TZ` and `AGE_RECIPIENT` are
+shared, so both archives open with the same offline key.
+
+| Variable                    | Meaning                                                  |
+| --------------------------- | -------------------------------------------------------- |
+| `COMPOSE_PROFILES`          | `secondary-backup` starts the second worker              |
+| `SECONDARY_RCLONE_CONF_B64` | rclone configuration, base64. Seeds its own volume once. |
+| `SECONDARY_RCLONE_REMOTE`   | Second destination                                       |
+| `SECONDARY_BACKUP_CRON`     | Its schedule, default `30 5 * * 0` (Sundays 05:30)       |
+| `SECONDARY_RETENTION_DAYS`  | Its retention, default 180                               |
+| `SECONDARY_PUSH_URL`        | Optional heartbeat URL for the second worker             |
+
+```sh
+COMPOSE_PROFILES=secondary-backup
+SECONDARY_RCLONE_CONF_B64=<base64 rclone.conf with a gdrive remote>
+SECONDARY_RCLONE_REMOTE=gdrive:homelab-backups/obsidian-weekly
+SECONDARY_BACKUP_CRON=30 5 * * 0
+SECONDARY_RETENTION_DAYS=180
+```
+
+</Step>
+<Step>
+
+Deploy as usual. If the profile is set and `SECONDARY_RCLONE_REMOTE` is empty, the second worker
+stays unhealthy and logs `RCLONE_REMOTE: Set rclone destination`. The rest of the stack keeps
+running.
+
+</Step>
+<Step>
+
+Run a first backup and list its destination:
+
+```sh
+docker compose -p livesync --env-file deploy/.env -f deploy/compose.yml exec backup-secondary backup.sh --manual
+docker compose -p livesync --env-file deploy/.env -f deploy/compose.yml exec backup-secondary \
+  rclone --config /config/rclone/rclone.conf lsf gdrive:homelab-backups/obsidian-weekly
+```
+
+</Step>
+</Steps>
+
+The panel reads only the primary worker. **Backups** shows its status, and **Request backup** queues
+a run for that worker alone. Watch the second worker with `SECONDARY_PUSH_URL` and a monitor that
+alerts when heartbeats stop, or read its status from the host:
+
+```sh
+docker compose -p livesync --env-file deploy/.env -f deploy/compose.yml exec backup-secondary \
+  jq '.lastAttempt' /backup/status/status.json
+```
+
+The workers do not share a lock. If their runs overlap, both succeed, but each one reads the whole
+data volume and writes a full encrypted copy to its own work volume. Schedule them apart, and leave
+disk space for two copies. Each worker applies retention only to its own remote. Do not point both
+at the same folder or bucket prefix, or the shorter retention deletes the other worker's archives.
+
+To change the second destination, follow [Change the destination](#change-the-destination) with
+`backup-secondary` instead of `backup`. To turn it off, clear `COMPOSE_PROFILES` and remove the
+container. Compose leaves a service outside the active profiles running until you remove it.
+
+```sh
+docker compose -p livesync --env-file deploy/.env -f deploy/compose.yml --profile secondary-backup rm -sf backup-secondary
+```
+
+Its volumes and the archives already uploaded stay until you delete them.
+
+## Run one now
+
+In the panel, **Request backup** adds a request to the queue. The page then follows the request
+until the worker records a result. From the host:
+
+```sh
+docker compose -p livesync --env-file deploy/.env -f deploy/compose.yml exec backup backup.sh --manual
+```
+
+In Dokploy, use the app's real project name instead of `livesync`, or run `backup.sh --manual` in
+the backup service's terminal.
+
+Scheduled runs, manual runs and queued requests all take the same lock, so two runs never overlap.
+The panel holds at most 16 requests in the queue. If the worker stops during a run, it records that
+run as `interrupted`, never as a success, and does not retry it on its own. The worker keeps
+running while the panel is stopped.
+
+The worker writes each encrypted archive to its own `backup-work` volume, and deletes it after the
+run. Keep enough free disk for a full encrypted copy. The run fails if the data volume holds no
+`.couch` file.
+
+## What is in the archive
+
+The archive holds the CouchDB data: every database, `_users`, the permissions, the panel registry
+and the vault recovery codes. It does **not** hold the CouchDB admin configuration, the Tailscale
+state, the Compose environment, the rclone tokens or the age private key. Back those up separately.
+
+The archive is a copy of live files, not one transactional snapshot of every database. For a
+consistent point in time, stop writes, or point the worker at a filesystem snapshot. Compaction can
+rename files while tar runs, so the worker retries the archive once. See CouchDB's
+[backup guidance](https://docs.couchdb.org/en/stable/maintenance/backups.html).
+
+<Callout type="warn">
+  Never mount the age private key in production, not even to automate restore tests.
+</Callout>
+
+## Restore in isolation
+
+<Steps>
+<Step>Download an archive to an isolated machine that has the offline age private key.</Step>
+<Step>
+
+Decrypt to a temporary file and list it before extracting:
+
+```sh
+age -d -i /offline/recovery-key.txt -o /isolated/restore.tar.gz /isolated/backup.tar.gz.age
+tar -tzf /isolated/restore.tar.gz
+```
+
+</Step>
+<Step>
+
+Start a disposable CouchDB of the same version, with no production network, clients or cron.
+Stop it, extract the archive into its empty data volume and fix the file ownership.
+
+</Step>
+<Step>
+
+Restore the CouchDB configuration you backed up separately, start only that CouchDB, and check
+`_users`, the document counts, the attachments, `_security` and the registry. Check that each user
+can read their own vault, and cannot reach anyone else's vault or the registry.
+
+</Step>
+<Step>
+
+Check the identities in the registry against the restored vaults. Reconcile any unfinished
+operation before you allow writes, especially when the archive was a live copy of several
+databases.
+
+</Step>
+<Step>
+
+Point an isolated panel and a test Obsidian client at the restored server. Import an existing
+vault identity and sync a test note without rebuilding the remote.
+
+</Step>
+<Step>
+
+Note the archive, the versions and how long the restore took. Delete the decrypted files and the
+test secrets.
+
+</Step>
+</Steps>
+
+## File contract
+
+The panel and worker talk through two directories, so another worker can replace this one.
+
+The panel writes `/backup/requests/<requestId>.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "requestId": "fa54f716-16f3-41c5-8d2e-697292197b77",
+  "actor": "admin@example.com",
+  "requestedAt": "2026-10-07T00:00:00.000Z"
+}
+```
+
+The worker replaces `/backup/status/status.json` atomically. The file holds `schemaVersion: 1`,
+`running`, `lastAttempt`, `lastSuccess`, up to 32 `history` entries, `schedule`, `timezone` and
+`retentionDays`. Each run records the request ID, the actor, the trigger, the times, the outcome,
+the file name, the size, a fixed error code, and separate flags for upload, retention and
+notification. A failed run keeps the previous success. The status never holds tokens, destinations
+or raw tool errors. If the file is corrupt or too large, the panel shows the status as unavailable.
+
+The worker treats requests as data only. It checks the size, schema, UUID file name, actor and
+timestamp with jq, and never sources or runs them. It deletes malformed files and logs them without
+their contents. It ignores a request ID it has already accepted in the last 30 days.
+
+In the panel, mount the requests directory read-write and the status directory read-only. Both
+directories belong to 1000:1000. The requests directory has mode 2770, the status directory 2750
+and the status file 640.

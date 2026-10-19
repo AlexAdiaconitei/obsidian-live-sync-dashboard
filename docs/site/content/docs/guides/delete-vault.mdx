@@ -1,0 +1,76 @@
+---
+title: Recover or delete a vault
+description: Download a vault recovery ZIP, restore it in isolation, and delete a vault permanently.
+---
+
+Each vault is one CouchDB database. Owners can download a copy of it and delete it from **Your
+vaults → Delete vault**.
+
+## Download a recovery ZIP
+
+**Download vault recovery ZIP** does not depend on [personal backups](/docs/backups/personal). The
+download is a live export, not an atomic snapshot, so stop sync first if you need a stable copy.
+Wait for the download to finish, and check that the ZIP opens without CRC errors before you delete
+anything. The server stops an export at 1 GiB or after 25 minutes.
+
+The ZIP holds `README.txt` and `vault.ndjson`. The first NDJSON record is a manifest with the
+vault's recovery code. A `local` record keeps the salt that end-to-end encryption needs. The
+document records keep the current revision leaves, conflicts, tombstones, revision ancestry and
+attachment bodies. Accounts, passwords, server settings and other vaults are not included.
+
+<Callout type="warn">
+  The notes keep their LiveSync encryption. The ZIP is not a folder of decrypted Markdown, and it
+  adds no encryption of its own. Keep it private, and store the vault encryption passphrase
+  somewhere else.
+</Callout>
+
+To read the notes, extract `vault.ndjson` and open it in **Your backups → Recover your vaults**
+with the vault passphrase. The page decrypts in the browser and downloads the notes as a ZIP.
+
+## Restore a ZIP
+
+<Steps>
+<Step>Start an isolated CouchDB of the same version, with no production network or clients.</Step>
+<Step>
+
+Create a new database and write the `local` record's document to
+`_local/obsidian_livesync_sync_parameters`. Then import the document records with `_bulk_docs` and
+`new_edits: false`, which keeps the revisions and attachments. Check every result.
+
+</Step>
+<Step>
+
+Give the account access again, and [adopt](/docs/guides/adopting) the restored database with the
+manifest's `idRecoveryCode`.
+
+</Step>
+<Step>
+
+Check the notes and attachments in a test Obsidian client, with the original encryption
+passphrase, before you move the restored data into production.
+
+</Step>
+</Steps>
+
+The [personal backup restore](/docs/backups/personal#restore) uses the same record format.
+
+## Delete a vault permanently
+
+Stop sync on every device first. Deleting a vault removes the whole remote database, with its
+notes, attachments and revisions. The page asks you to:
+
+- confirm that you downloaded and checked a recovery copy, or choose to go on without one,
+- type the exact vault label,
+- enter your account password,
+- confirm that the loss cannot be undone, then confirm once more.
+
+The server checks ownership, the password, the confirmations and the database access. It refuses
+to delete while a recovery export is running, and refuses databases shared with other accounts or
+roles. An administrator has to delete those. Local copies, other vaults, your account and earlier
+backups stay as they are.
+
+Deletion holds the same lock as sync writes. If it is interrupted, it leaves a journal entry, and
+the panel finishes the deletion at startup. A marker in the database tells the panel it is deleting
+the right one. If another database has appeared under the same name, recovery stops without
+deleting it. A vault created again after deletion gets a new database name and a new recovery code,
+so configure its devices again with a new URI.

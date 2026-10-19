@@ -1,0 +1,115 @@
+---
+title: Before you install
+description: Choose an installation, and prepare the Tailscale key, the backup key, the rclone destination and the secrets.
+---
+
+## Choose an installation
+
+| You have                                   | Use                                                    |
+| ------------------------------------------ | ------------------------------------------------------ |
+| A Dokploy server                           | [Dokploy](/docs/install/dokploy), with the released images |
+| A Linux host with Docker Compose           | [Docker Compose](/docs/install/docker-compose), built from a checkout |
+| A CouchDB server that LiveSync already uses | [Existing server](/docs/install/existing-server), panel only |
+
+The first two run the complete stack: Tailscale, CouchDB, the panel and the backup worker. All
+three need Linux amd64 and Docker Compose 2.23.1 or later.
+
+Prepare the items below before you start. Keep every secret in a password manager.
+
+<Steps>
+<Step>
+
+### Tailscale
+
+In the Tailscale admin console:
+
+1. Under **DNS**, enable MagicDNS and HTTPS certificates.
+2. Merge [`deploy/tailscale/policy.hujson`](https://github.com/AlexAdiaconitei/obsidian-live-sync-dashboard/blob/main/deploy/tailscale/policy.hujson)
+   into your access policy, with your own logins. It makes your admins owners of `tag:notes` and
+   grants the three ports. [Tailscale access](/docs/install/tailscale) explains each rule.
+3. Under **Settings → Keys**, generate an auth key with the tag `tag:notes`. This is `TS_AUTHKEY`.
+   The node joins the tailnet once and keeps its identity in the `ts-state` volume.
+
+Note the Tailscale login of every administrator for `PANEL_ADMINS`.
+
+</Step>
+<Step>
+
+### Backup key
+
+The worker encrypts every archive to an [age](https://age-encryption.org/) public key. Create the
+key pair on a machine you trust, not on the server:
+
+```sh
+age-keygen -o livesync-backup-key.txt
+```
+
+The command prints `Public key: age1…`. That value is `AGE_RECIPIENT`. Keep
+`livesync-backup-key.txt` offline. It is the only way to open the backups, and it never goes on the
+server.
+
+</Step>
+<Step>
+
+### Backup destination
+
+The worker uploads with rclone. Create the remote on a machine with a browser, then encode the
+configuration file:
+
+<Tabs items={['Google Drive', 'S3 or Garage']}>
+<Tab value="Google Drive">
+
+```sh
+rclone config create gdrive drive scope=drive.file
+rclone lsd gdrive:
+base64 -w0 ~/.config/rclone/rclone.conf   # macOS: base64 -i ~/.config/rclone/rclone.conf
+```
+
+rclone opens the browser to authorize the Google account. With `scope=drive.file`, rclone sees
+only the files it creates. Google limits rclone's shared OAuth client, so for regular use create
+your own client ID as described in
+[rclone's Google Drive guide](https://rclone.org/drive/#making-your-own-client-id), and pass
+`client_id=… client_secret=…` to the first command.
+
+Then set `RCLONE_REMOTE`, for example `gdrive:backups/obsidian`.
+
+</Tab>
+<Tab value="S3 or Garage">
+
+Follow [Store archives in S3](/docs/backups/instance#store-archives-in-s3). It covers the key
+permissions, the `rclone.conf` for each provider and the trailing slash in `RCLONE_REMOTE`.
+
+</Tab>
+</Tabs>
+
+The base64 output is `RCLONE_CONF_B64`. It seeds the worker's volume on the first start, and rclone
+keeps its refreshed tokens there afterwards. Delete any copy of `rclone.conf` you no longer need.
+
+</Step>
+<Step>
+
+### Secrets
+
+```sh
+openssl rand -base64 48   # PANEL_CSRF_SECRET
+openssl rand -hex 32      # COUCHDB_PASSWORD
+```
+
+`COUCHDB_USER` is the CouchDB administrator the panel uses, for example `dashboard-admin`. For an
+existing server, use an administrator account that already exists there.
+
+</Step>
+<Step>
+
+### Quotas
+
+Decide `INSTANCE_QUOTA_GIB` and `DEFAULT_USER_QUOTA_GIB`. On an existing server, set both above the
+current usage, or every write that makes a vault grow fails. See
+[Storage quotas](/docs/guides/quotas).
+
+</Step>
+</Steps>
+
+Every variable is listed in [Configuration](/docs/reference/configuration). Personal Google Drive
+backups are optional and need their own Google setup, described in
+[Personal backups](/docs/backups/personal#configure-the-server-once).

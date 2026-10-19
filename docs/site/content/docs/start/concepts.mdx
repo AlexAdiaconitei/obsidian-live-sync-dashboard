@@ -1,0 +1,69 @@
+---
+title: How it fits together
+description: Endpoints, identity, the registry, vault identity and why there is exactly one panel.
+---
+
+## One node, three endpoints
+
+The stack runs behind a Tailscale sidecar. Tailscale Serve terminates HTTPS on three ports and
+forwards each one to a listener on loopback:
+
+| Address                  | Forwards to       | Serves                         |
+| ------------------------ | ----------------- | ------------------------------ |
+| `https://<TS_FQDN>`      | `127.0.0.1:8082`  | Quota gateway for LiveSync     |
+| `https://<TS_FQDN>:8443` | `127.0.0.1:8080`  | Administration                 |
+| `https://<TS_FQDN>:9443` | `127.0.0.1:8081`  | Owner portal                   |
+
+CouchDB listens on `127.0.0.1:5984` and is never exposed. No service publishes host ports.
+
+## Identity and network access
+
+Tailscale decides who can reach the three endpoints. Serve also sends the administrator's
+identity, and any login listed in `PANEL_ADMINS` gets the administration portal.
+
+Owners sign in with their own CouchDB username and sync password. Several people can share one
+Tailscale account and still have separate panel accounts and vaults. Obsidian clients use the same
+CouchDB credentials to authenticate to the gateway.
+
+## People and vaults
+
+A **person** has their own CouchDB account. A **vault** is one CouchDB database that belongs to one
+person. A person can have several vaults, and all of them count against that person's storage
+quota.
+
+The panel keeps its own records (people, vaults, claims, pending operations and audit events) in a
+registry database, `PANEL_DB`, which is `livesync_dashboard` by default. Only CouchDB
+administrators can read the registry.
+
+## Vault identity and the recovery code
+
+LiveSync derives document IDs from a key that belongs to the vault. Every device of a vault must
+use the same key. A device with a different key writes documents that the others cannot match.
+LiveSync exports that key as an **ID recovery code**: `sls-id-v1:` followed by 64 hexadecimal
+characters.
+
+The panel stores one recovery code per vault and puts it in every setup URI for that vault:
+
+- A vault created by the panel gets a new code when it is created.
+- An adopted vault takes its code from a device that already syncs it. Until someone registers
+  the code, the panel generates no setup URIs for that vault. See
+  [Find a recovery code](/docs/guides/recovery-code).
+
+The panel never replaces a stored code, and never makes up a code for a remote that already holds
+data.
+
+## Exactly one writer
+
+The panel admits quota writes one at a time, inside its own process. Two panels on the same
+registry would each admit writes without seeing the other's reservations. Run one panel per
+registry, and keep other writers away from managed vaults. Adoption installs a validation guard
+that refuses direct writes from regular CouchDB users.
+
+## Two kinds of backup
+
+- The **backup worker** copies the CouchDB data directory, encrypts it to the operator's age
+  recipient and uploads it with rclone. It is for rebuilding the server.
+- **Personal backups** export one owner's vaults, encrypted to that owner's age recipient, to that
+  owner's Google Drive. They are for getting one person's notes back.
+
+See [Instance backups](/docs/backups/instance) and [Personal backups](/docs/backups/personal).

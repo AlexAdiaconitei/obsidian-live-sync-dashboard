@@ -1,0 +1,62 @@
+---
+title: Tailscale access
+description: Node naming, the access policy and the checks to run after deployment.
+---
+
+## Node name
+
+Set `TS_HOSTNAME` to the node name you want and `TS_FQDN` to the DNS name Tailscale actually
+assigns, for example `notes.tail123456.ts.net`: hostname only, no scheme, port or trailing slash.
+If a node called `notes` already exists, Tailscale may assign another name. Confirm it on the
+Machines page; changing `TS_FQDN` does not rename the node.
+
+Enable MagicDNS and HTTPS certificates in the tailnet. Issue `TS_AUTHKEY` for `tag:notes` from an
+identity allowed by the tag owners. Keep the `ts-state` volume.
+
+## Policy
+
+Merge `deploy/tailscale/policy.hujson` into the current policy and replace the example logins.
+
+| Port | Who needs it                                              |
+| ---- | --------------------------------------------------------- |
+| 443  | Every person who syncs, plus technical monitors           |
+| 8443 | Administrators                                            |
+| 9443 | Every person with vaults                                  |
+
+Grants add up, so an old allow-all grant still opens 8443. If you share the node, check what
+`autogroup:shared` can reach before you invite anyone. Devices on a shared Tailscale account need
+443 and 9443, and no grant to 8443. Each owner signs in with their own CouchDB username and sync
+password. Administrators still need their own Tailscale identity, listed in `PANEL_ADMINS`.
+
+Tagged monitors may have no identity headers. They can still check CouchDB through 443 with their
+own credentials, but cannot open the panel.
+
+<Callout type="error" title="Never enable Funnel">
+  Administration trusts Tailscale identity headers. Do not expose any backend through Funnel or public
+  reverse-proxy routes.
+</Callout>
+
+## Check access
+
+In the `ts` container:
+
+```sh
+tailscale status
+tailscale serve status
+```
+
+Serve must forward 443 to `127.0.0.1:8082`, 8443 to `127.0.0.1:8080` and 9443 to `127.0.0.1:8081`.
+In the panel container:
+
+```sh
+node -e 'fetch("http://127.0.0.1:8080/health/ready").then(r=>console.log(r.status))'
+```
+
+Expect `200`. Then, from authorised devices:
+
+1. Open administration and create a disposable account and invitation.
+2. Activate the account in the owner portal, then create a vault.
+3. Sync a note and an attachment through 443.
+4. Run `backup.sh --manual` in the backup container and check the upload.
+
+Container health alone does not prove storage-provider permissions or real device sync.

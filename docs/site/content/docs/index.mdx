@@ -1,0 +1,45 @@
+---
+title: Introduction
+description: What the LiveSync Dashboard does, who uses which part, and where to start.
+---
+
+The LiveSync Dashboard manages the CouchDB server behind
+[Obsidian LiveSync](https://github.com/vrtmrz/obsidian-livesync). It runs next to CouchDB, inside
+your Tailscale tailnet, and serves two portals:
+
+- **Administration**, for the people listed in `PANEL_ADMINS`. Create people and vaults, adopt
+  databases that already exist, set storage quotas, watch instance backups and read the activity
+  log.
+- **Owner portal**, for everyone else. Each person sees their own vaults, sets their sync
+  password, generates encrypted setup URIs for new devices and backs their vaults up to their own
+  Google Drive.
+
+Obsidian clients sync through a third endpoint, the quota gateway, which enforces storage limits
+before writes reach CouchDB.
+
+<Shot
+  name="owner-vaults"
+  alt="The owner portal: the person's storage quota and one card per vault, one of them asking for a recovery code"
+  caption="The owner portal. The third vault was adopted without its recovery code."
+/>
+
+## Where to start
+
+<Cards>
+  <Card title="Run the demo locally" href="/docs/start/quickstart">
+    Run both portals locally with fictional data. No CouchDB or Tailscale needed.
+  </Card>
+  <Card title="How it fits together" href="/docs/start/concepts">
+    The endpoints, the registry, vault identity and the one-writer rule.
+  </Card>
+  <Card title="Install" href="/docs/install/prepare">
+    Choose Dokploy, Docker Compose or an existing server, and prepare the keys and secrets.
+  </Card>
+  <Card title="Connect an existing server" href="/docs/install/existing-server">
+    Put the panel in front of a CouchDB you already run, then adopt its vaults.
+  </Card>
+</Cards>
+
+<Callout title="Independent project">
+  This project is not affiliated with Obsidian or the Obsidian LiveSync maintainers.
+</Callout>

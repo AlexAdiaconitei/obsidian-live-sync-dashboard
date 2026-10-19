@@ -1,0 +1,92 @@
+---
+title: Configure a device
+description: How owners generate setup URIs, and what stays in the browser.
+---
+
+Owners add devices from **Your vaults → Configure device** in the owner portal.
+
+<Shot
+  name="owner-setup"
+  alt="The Configure a device page: sync server, username and database, the sync password, and the vault passphrase fields"
+/>
+
+## What the form asks for
+
+| Field                       | Used for                                                       |
+| --------------------------- | -------------------------------------------------------------- |
+| Sync password               | The CouchDB password Obsidian uses for this account            |
+| Vault encryption passphrase | LiveSync end-to-end encryption. Must match the other devices.  |
+| Setup URI type              | Temporary (expires) or persistent                              |
+| Setup URI password          | Protects the URI itself. Left empty, the panel generates one.  |
+
+## What happens
+
+1. The page fetches the vault's details: the public hostname, the database, the username, the
+   recovery code, and whether the remote is new or already holds data.
+2. The server checks the sync password with CouchDB. If it is wrong, the page shows an error and
+   stops.
+3. The browser builds the LiveSync settings, with end-to-end encryption and path obfuscation on,
+   and encrypts them into a setup URI with the URI password.
+4. The panel records that a URI was issued. It never receives the URI, the passphrase or the URI
+   password.
+
+The page shows the URI and its password in separate blocks, to copy into Obsidian. The generate
+buttons create random values for a new vault's encryption passphrase and for the URI password. The
+sync password must be the account's current one. To use a different one, change it on the password
+page first. An existing vault needs its original encryption passphrase.
+
+**Download setup .txt** saves the connection details, the sync password, the encryption
+passphrase, the recovery code, the URI and the URI password. The file holds passwords in plain
+text, so keep it private. The page warns you if you leave without downloading it. Closing the page
+clears the generated setup, even a persistent URI. Neither the server nor the browser's storage
+keeps a copy.
+
+## First device or another device
+
+When the panel creates a vault, it prepares the remote database: it writes LiveSync's version
+document and the settings that every generated URI uses. LiveSync reads those settings, so it does
+not ask whether to upload the device's own.
+
+- **New vault, first device:** fetch from the remote, or rebuild it from this device's notes. Notes
+  already on the device upload either way.
+- **Existing vault:** reuse the original encryption passphrase, accept the remote's settings and
+  fetch from the remote. Do not rebuild. A rebuild replaces the remote with this device's copy, and
+  every other device then has to fetch again.
+
+A LiveSync rebuild deletes and recreates the database, which a sync account cannot do in CouchDB.
+The sync gateway passes that request to the panel, and the panel recreates the database with the
+same access for the account that owns the vault. Adopted vaults, and vaults shared with other
+accounts or roles, refuse a rebuild with `remote_rebuild_forbidden`.
+
+All devices of a vault use the same account password and vault encryption passphrase. Only the
+setup URI password is different for each link.
+
+<Callout title="LiveSync says the remote has no saved settings">
+  Open **Configure device** again. For a vault with no notes, the panel writes the settings, even
+  over a lock left by a failed rebuild. Then import the new URI and fetch or rebuild.
+</Callout>
+
+## Sync errors
+
+If sync reports an HTTP error, note the exact status and LiveSync's error message, without sharing
+setup URIs or passwords. Check the Tailscale connection, the sync server address in LiveSync and the
+credentials. A URI that generates correctly does not prove that a given Obsidian installation can
+sync.
+
+## Expiry
+
+A temporary URI can no longer be imported once it expires. Neither type revokes a device that has
+already imported it. To cut a device off, change the sync password, or have an administrator
+disable access.
+
+## Trust
+
+The encryption passphrase and the URI password stay in browser memory while the page builds the
+URI. The sync password goes through the server to be checked. The browser runs JavaScript that the
+panel serves, so someone who could replace that code could capture the secrets typed afterwards.
+Type them only into an installation you trust.
+
+<Callout title="Vault without a recovery code">
+  If a vault was adopted without its recovery code, its card shows **Add recovery code** instead of
+  **Configure device**. See [Find a recovery code](/docs/guides/recovery-code).
+</Callout>

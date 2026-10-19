@@ -1,0 +1,69 @@
+---
+title: Configuration
+description: Every environment variable the stack reads.
+---
+
+Start from `deploy/.env.example` (Compose) or the release's `dokploy.env.example` (Dokploy). Keep the
+file readable only by its owner.
+
+## Images
+
+| Variable             | Meaning                                                              |
+| -------------------- | -------------------------------------------------------------------- |
+| `PANEL_IMAGE`        | Empty to build from the checkout, or an immutable tag or digest      |
+| `BACKUP_IMAGE`       | Same, for the worker                                                 |
+| `PANEL_PULL_POLICY`  | `build` for source builds, `always` for registry images              |
+| `BACKUP_PULL_POLICY` | Same, for the worker                                                 |
+
+## Tailscale and URLs
+
+| Variable             | Meaning                                                              |
+| -------------------- | -------------------------------------------------------------------- |
+| `TS_AUTHKEY`         | Auth key allowed to advertise `tag:notes`                            |
+| `TS_HOSTNAME`        | Requested node name                                                  |
+| `TS_FQDN`            | Dokploy only: the assigned DNS name; the three URLs derive from it   |
+| `PUBLIC_COUCHDB_URL` | `https://<TS_FQDN>`, what Obsidian clients use                       |
+| `PUBLIC_ADMIN_URL`   | `https://<TS_FQDN>:8443`                                             |
+| `PUBLIC_SETUP_URL`   | `https://<TS_FQDN>:9443`                                             |
+
+## Panel
+
+| Variable                 | Meaning                                                            |
+| ------------------------ | ------------------------------------------------------------------ |
+| `COUCHDB_USER`           | CouchDB administrator the panel uses                               |
+| `COUCHDB_PASSWORD`       | Its password                                                       |
+| `COUCHDB_URL`            | Existing servers only: private HTTPS backend URL                   |
+| `PANEL_ADMINS`           | Comma-separated Tailscale logins with administration access        |
+| `PANEL_CSRF_SECRET`      | At least 32 random characters                                      |
+| `PANEL_DB`               | Registry database, default `livesync_dashboard`                    |
+| `INSTANCE_QUOTA_GIB`     | Instance limit, `0` for unlimited                                  |
+| `DEFAULT_USER_QUOTA_GIB` | Initial limit for new people, `0` for unlimited                    |
+| `QUOTA_RECOVER_PENDING`  | `1` for one recovery start only. See [Quotas](/docs/guides/quotas#interrupted-writes). |
+
+## Instance backups
+
+| Variable               | Meaning                                                    |
+| ---------------------- | ---------------------------------------------------------- |
+| `AGE_RECIPIENT`        | Public age recipient                                       |
+| `RCLONE_CONF_B64`      | Base64 rclone configuration                                |
+| `RCLONE_REMOTE`        | rclone destination                                         |
+| `BACKUP_CRON`          | Schedule, for example `30 3 * * *`                         |
+| `TZ`                   | Time zone                                                  |
+| `RETENTION_DAYS`       | Days to keep uploaded archives                             |
+| `BACKUP_MAX_AGE_HOURS` | Stale-backup warning threshold in the panel, default 26    |
+| `PUSH_URL`             | Optional heartbeat URL                                     |
+
+The optional second worker reads `COMPOSE_PROFILES=secondary-backup` and the same variables with a
+`SECONDARY_` prefix: `SECONDARY_RCLONE_CONF_B64`, `SECONDARY_RCLONE_REMOTE`,
+`SECONDARY_BACKUP_CRON` (default `30 5 * * 0`), `SECONDARY_RETENTION_DAYS` (default 180) and
+`SECONDARY_PUSH_URL`. See [Two destinations](/docs/backups/instance#two-destinations).
+
+## Personal backups
+
+| Variable                      | Meaning                                                    |
+| ----------------------------- | ---------------------------------------------------------- |
+| `GOOGLE_DRIVE_CLIENT_ID`      | OAuth web client ID                                        |
+| `GOOGLE_DRIVE_CLIENT_SECRET`  | OAuth client secret                                        |
+| `GOOGLE_DRIVE_TOKEN_KEY`      | 32 random bytes, base64. Encrypts stored refresh tokens.   |
+| `GOOGLE_DRIVE_PICKER_API_KEY` | Optional browser key for the folder picker                 |
+| `GOOGLE_DRIVE_PROJECT_NUMBER` | Numeric Cloud project number, required with the picker key |

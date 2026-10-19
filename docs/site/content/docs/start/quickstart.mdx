@@ -1,0 +1,63 @@
+---
+title: Run the demo locally
+description: Run both portals locally with in-memory data and simulated backups.
+---
+
+The demo runs the real panel against an in-memory service. It needs no CouchDB server, Tailscale
+account or Google account, and it forgets every change when the process stops.
+
+<Steps>
+<Step>
+
+### Install
+
+Use Node.js 24.21.0 or a later 24.x release (pinned in `.nvmrc`) and pnpm 12.8.2 (pinned in
+`packageManager`).
+
+```sh
+git clone https://github.com/AlexAdiaconitei/obsidian-live-sync-dashboard.git
+cd obsidian-live-sync-dashboard
+pnpm install --frozen-lockfile
+pnpm run build
+```
+
+</Step>
+<Step>
+
+### Start
+
+```sh
+pnpm run demo
+```
+
+Open [administration](http://127.0.0.1:5173) and the [owner portal](http://127.0.0.1:5174).
+Administration signs you in as `admin@demo.local`. In the owner portal, sign in as `ana` with the
+password `demo-owner-password`. Stop the demo with Ctrl+C.
+
+If those ports are taken, choose others:
+
+```sh
+DEMO_ADMIN_PORT=5183 DEMO_OWNER_PORT=5184 pnpm run demo
+```
+
+</Step>
+<Step>
+
+### Look around
+
+- **Overview** shows the CouchDB status, the instance quota and the size of each database.
+- **People → Ana García** lists Ana's vaults. *Archive* was adopted without a recovery code, so the
+  page has a form to register one.
+- The owner portal shows Ana's vaults and quota. **Configure device** opens the setup URI form.
+- **Backups** shows a simulated history. A requested backup finishes after about two seconds.
+
+</Step>
+</Steps>
+
+Personal Google Drive backups are off in the demo. Use test passwords only.
+
+<Shot
+  name="admin-person"
+  alt="The person page for Ana García: status, quota, the vault table with a recovery code form for the Archive vault, and the create vault form"
+  caption="A person's page in the demo."
+/>

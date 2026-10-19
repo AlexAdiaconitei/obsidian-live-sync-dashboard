@@ -1,0 +1,75 @@
+---
+title: Security model
+description: What is encrypted where, who can read what, and what the panel trusts.
+---
+
+## Encryption
+
+| Layer                   | Protects                         | Key held by                         |
+| ----------------------- | -------------------------------- | ----------------------------------- |
+| LiveSync E2E            | Note contents in CouchDB         | The vault passphrase, on devices    |
+| Setup URI password      | The URI while it is copied       | The owner                           |
+| age (instance backup)   | The CouchDB data archive         | The operator's offline private key  |
+| age (personal backup)   | One owner's export in Drive      | That owner's private key            |
+| AES-256-GCM             | Stored Google refresh tokens     | `GOOGLE_DRIVE_TOKEN_KEY`            |
+
+Setup URIs from the panel turn on end-to-end encryption and path obfuscation, so CouchDB stores
+only ciphertext. A CouchDB administrator cannot decrypt the note contents, but can see records,
+sizes and some metadata, and can delete or change data.
+
+Existing and adopted vaults keep the settings their clients already had. Check encryption in those
+clients, because the panel does not re-encrypt anything.
+
+## What the browser keeps
+
+The vault passphrase and the URI password exist only in browser memory while the page builds a URI.
+Sync passwords go through the panel during activation, sign-in, password changes and the check
+before URI generation. The panel never stores them.
+
+URI generation runs the JavaScript the panel serves. Someone who could replace that code could
+capture the secrets typed afterwards.
+
+Downloaded account and setup .txt files contain passwords in plain text. Keep them private.
+The panel does not save a copy for later recovery.
+
+## Identity and access
+
+- Only Tailscale Serve reaches the private listeners. It supplies the administrator identity.
+- `PANEL_ADMINS` decides administration access. Owners use individual CouchDB usernames and sync
+  passwords, even if their devices share a Tailscale account.
+- The registry stores only a hash of each invitation. An invitation works once and expires after
+  24 hours. Owner sessions are signed. A session ends after one idle hour or 12 hours after
+  sign-in, and a password change, a reset, disabling access or signing out ends every session of
+  the account.
+- CouchDB locks an account for five minutes after five failed logins. The lock covers the owner
+  portal, the sync gateway and direct `/_session` requests. The owner sign-in form and the sync
+  gateway also refuse a username for a minute after five failed attempts. That limit applies even
+  on an existing CouchDB server with different lockout settings.
+- Owners always sign in with a username and password. Only the administration portal trusts
+  Tailscale identity headers.
+- Every form that changes data needs a CSRF token bound to the user and the portal, and the exact
+  origin.
+- Owners can open only their own vaults. The panel refuses IDs that belong to someone else.
+
+## Operating rules
+
+- Keep CouchDB and every backend listener on loopback. Never enable Funnel.
+- Run exactly one panel per registry.
+- Keep the instance backup's age private key offline and never mount it in production.
+- Do not remove write guards to resolve quota errors.
+
+## Shared network namespace
+
+Every container using `network_mode: service:ts` can reach the panel's loopback listeners and, in
+the complete stack, CouchDB. Such a container can forge `Tailscale-User-Login` on a request to port
+8080 and impersonate an administrator. It can also reach CouchDB without going through the quota
+gateway, though CouchDB still requires credentials and enforces its write guard. Attach only trusted
+containers to this namespace. Do not add unrelated workloads or proxies that accept untrusted
+identity headers.
+
+## The `localhost` CORS origin
+
+The CouchDB CORS allowlist includes `http://localhost` because the Android LiveSync client sends
+that origin. A web page served from that origin can send requests with a CouchDB session cookie the
+browser holds. Treat local web applications as trusted as the clients themselves. Remove this
+origin only after checking every client that will use the deployment.

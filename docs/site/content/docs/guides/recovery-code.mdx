@@ -1,0 +1,76 @@
+---
+title: Find a recovery code
+description: Read an adopted vault's ID recovery code from a device that already syncs it, and register it.
+---
+
+A vault adopted without its recovery code keeps syncing, but the panel does not generate setup URIs
+for it. Instead, the owner's vault card shows an **Add recovery code** button and the administrator's
+person page shows a form to save the code:
+
+<Shot
+  name="owner-vaults"
+  alt="The owner portal: the Archive vault card has an Add recovery code button instead of Configure device"
+/>
+
+## Where the code lives
+
+The code is not on the CouchDB server. Only the Obsidian clients hold it, in the LiveSync plugin
+settings of the vault:
+
+```text
+<vault>/.obsidian/plugins/obsidian-livesync/data.json
+```
+
+LiveSync encrypts the key before saving that file, so `idDerivationKey` is always empty there. The
+encrypted value is in `encryptedIdDerivationKey`:
+
+```json
+"idDerivationVersion": 1,
+"idDerivationKey": "",
+"encryptedIdDerivationKey": "…",
+```
+
+## Read it
+
+From a checkout of this repository, on the device that syncs the vault:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm run recovery-code "<vault>/.obsidian/plugins/obsidian-livesync/data.json"
+```
+
+The command prints `sls-id-v1:` followed by 64 hexadecimal characters. It decrypts with the same
+library the plugin uses and sends nothing anywhere.
+
+| Plugin setting                                        | What to do                                              |
+| ----------------------------------------------------- | ------------------------------------------------------- |
+| *Encrypting sensitive configuration items*: default   | Nothing. The default passphrase is built in.            |
+| A custom passphrase (`LOCALSTORAGE`, `ASK_AT_LAUNCH`) | Pass it as a second argument.                           |
+| `idDerivationVersion` is `0` or missing               | The vault does not use keyed IDs and has no code.       |
+
+<Callout type="warn">
+  The recovery code is the vault's identity. Paste it only into the panel, not into chats, tickets
+  or logs, and run the command in your own terminal.
+</Callout>
+
+## Register it
+
+Paste the whole value, including the `sls-id-v1:` prefix, into **Existing recovery code**:
+
+- **Owners:** choose **Add recovery code** on the vault's card in **Your vaults**.
+- **Administrators:** in the vault list on the person's page, or with the original adoption form.
+
+The panel checks the format and stores the code. Registering the same code again changes nothing.
+The panel refuses a different code for a vault that already has one, and never replaces a stored
+identity.
+
+<Callout>
+  The panel cannot prove that a code belongs to the remote from CouchDB data alone. Before adding a
+  real device, import a URI on a disposable vault and confirm that it fetches the existing notes
+  without creating duplicates.
+</Callout>
+
+## No code at all
+
+If no device has a code, the panel cannot issue URIs for that vault. Add devices from an existing
+one with LiveSync's *Copy settings as a new Setup URI* instead.

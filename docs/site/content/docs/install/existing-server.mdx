@@ -1,0 +1,114 @@
+---
+title: Existing server
+description: Bring a CouchDB server that LiveSync already uses under the panel, without losing data or re-syncing devices.
+---
+
+There are two ways to bring an existing LiveSync server under the panel:
+
+- **Keep CouchDB where it is** and add only the panel in front of it. This page covers that case.
+- **Move the data into the complete stack**, so the panel's Compose project also runs CouchDB and
+  the backup worker. See [Move the data into the complete stack](#move-the-data-into-the-complete-stack).
+
+Either way, the databases, accounts and passwords stay the same, and devices keep their vault
+identity.
+
+## Add the panel in front of CouchDB
+
+`deploy/compose.existing.yml` (built from source) and the release's `compose.dokploy.existing.yml`
+(GHCR images) run only the panel and its own Tailscale node. They create no CouchDB volumes and no
+backup worker, so keep your current backups running.
+
+### Requirements for the existing server
+
+- `COUCHDB_URL` is the server's private address. It must use HTTPS, unless it is on loopback, and
+  must not contain credentials.
+- `COUCHDB_USER` and `COUCHDB_PASSWORD` are a CouchDB server administrator.
+- Only the panel and trusted operators may reach that address. Sync clients must not reach it
+  directly once the vaults are adopted.
+- `PUBLIC_COUCHDB_URL` is the address Obsidian uses. It points at the panel's gateway on port 443,
+  so it differs from `COUCHDB_URL`.
+
+The backup variables are not used. Prepare the other values as in
+[Before you install](/docs/install/prepare).
+
+### Steps
+
+<Steps>
+<Step>
+
+**Back up the server** and check that the backup restores.
+
+</Step>
+<Step>
+
+**Deploy the panel.** With Docker Compose:
+
+```sh
+cp deploy/.env.example deploy/.env
+chmod 600 deploy/.env
+# Set COUCHDB_URL, the CouchDB administrator, the Tailscale values, the three PUBLIC_ URLs,
+# PANEL_ADMINS, PANEL_CSRF_SECRET and the quotas.
+docker compose -p livesync-panel --env-file deploy/.env -f deploy/compose.existing.yml up -d --build --wait --wait-timeout 180
+```
+
+On Dokploy, follow [Dokploy](/docs/install/dokploy) with `compose.dokploy.existing.yml` instead of
+`compose.dokploy.yml`. Then open the three addresses and run the
+[access checks](/docs/install/tailscale#check-access).
+
+</Step>
+<Step>
+
+**Move every device to the gateway.** In Obsidian, open the LiveSync settings, go to the remote
+configuration and change the server URI to `PUBLIC_COUCHDB_URL`. Keep the username, password,
+database name and encryption passphrase. Do not import a new setup URI, and do not rebuild:
+the device keeps its vault identity and resumes syncing. Sync a test note on each device.
+
+</Step>
+<Step>
+
+**[Adopt](/docs/guides/adopting) each vault.** Adoption installs a validation guard, so any client
+still writing to CouchDB directly fails from now on. Account passwords and `_security`
+memberships stay as they are. The panel refuses a database with its own `validate_doc_update`
+design document, because the gateway writes with administrator credentials and those rules do
+not apply to administrators.
+
+</Step>
+<Step>
+
+**Register each vault's [recovery code](/docs/guides/recovery-code)**, so owners can configure
+new devices from the panel.
+
+</Step>
+<Step>
+
+**Check monitors and sync.** Point health monitors at the gateway (`/_up` on port 443 still works
+with their CouchDB credentials). Sync a test note and an attachment, then tell owners to sign in at
+`https://<TS_FQDN>:9443` with their CouchDB username and sync password.
+
+</Step>
+</Steps>
+
+<Callout type="warn">
+  Only one panel may manage a registry and its vaults. The panel cannot measure or back up the
+  disk of a remote server. To show your own backups in the panel, write a worker that follows the
+  [request and status contract](/docs/backups/instance#file-contract).
+</Callout>
+
+## Move the data into the complete stack
+
+If CouchDB already runs in Docker on the same host, the complete stack can take over its data
+volume:
+
+1. Back up the server and stop the old CouchDB container.
+2. Find the old data volume with `docker volume ls`.
+3. In `compose.yml` or `compose.dokploy.yml`, give the `couchdb-data` volume a `name:` equal to
+   the old volume's name. Do the same for an existing Tailscale state volume if you want to keep
+   the node and its address.
+4. Deploy as in [Docker Compose](/docs/install/docker-compose) or [Dokploy](/docs/install/dokploy).
+   `COUCHDB_USER` and `COUCHDB_PASSWORD` must be the server administrator that already exists in
+   that data.
+5. Check that the document counts match the backup, then continue from step 3 above: move the
+   devices to the gateway, adopt each vault and register the recovery codes.
+
+If CouchDB runs elsewhere, restore its data directory into the new `couchdb-data` volume before
+the first start instead, as in [Restore in isolation](/docs/backups/instance#restore-in-isolation).

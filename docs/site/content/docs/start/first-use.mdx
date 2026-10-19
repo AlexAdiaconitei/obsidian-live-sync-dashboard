@@ -1,0 +1,70 @@
+---
+title: First use
+description: From a fresh deployment to a first device syncing.
+---
+
+These steps assume a running stack (see [Dokploy](/docs/install/dokploy) or
+[Docker Compose](/docs/install/docker-compose)) and a device connected to the same tailnet. Replace
+`<TS_FQDN>` with the node's full DNS name, such as `notes.tail123456.ts.net`.
+
+<Steps>
+<Step>
+
+### Create an account
+
+Open `https://<TS_FQDN>:8443` with a Tailscale login listed in `PANEL_ADMINS`. In **People**,
+create an account with a display name and a CouchDB username. Open the account's page, create an
+invitation and send the link to its owner privately. The link works once and expires after 24
+hours.
+
+</Step>
+<Step>
+
+### Set the sync password
+
+The owner opens the invitation and chooses or generates a password of at least 12 characters. They
+download the account .txt before activating. It holds the password in plain text, so it must stay
+private.
+
+The owner then signs in at `https://<TS_FQDN>:9443` with the CouchDB username and that password.
+Several people may share one Tailscale account for network access; each still has their own panel
+account. On **Your vaults**, the owner chooses **Add vault** and enters a name.
+
+</Step>
+<Step>
+
+### Generate a setup URI
+
+On **Your vaults**, the owner chooses **Configure device** for the vault and enters:
+
+- the sync password,
+- the vault encryption passphrase, twice,
+- a setup URI password, if they want to choose one. Left empty, the panel generates it.
+
+The server checks the sync password with CouchDB, then the browser builds the encrypted URI. For a
+new vault, generate the encryption passphrase. For an existing vault, reuse the original one.
+
+Download the setup .txt before leaving the page. It holds the URI, the connection details, the
+passwords and the recovery code in plain text, so keep it private. Closing the page clears the
+generated setup, even a persistent URI. The URI's lifetime only decides how long it can be
+imported.
+
+</Step>
+<Step>
+
+### Import it in Obsidian
+
+In Obsidian LiveSync, import the setup URI and enter its password. On the first device of a new
+vault, either fetch from the remote or rebuild it. Both work, because the panel has already prepared
+the remote database and reset it the way a rebuild would. On every later device, fetch from the
+remote.
+
+Check that a test note and an attachment sync before you move real data in.
+
+</Step>
+</Steps>
+
+<Shot
+  name="owner-setup"
+  alt="The Configure a device page: sync server, username and database, the sync password, and the vault passphrase fields"
+/>

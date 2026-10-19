@@ -1,0 +1,163 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+/* Fumadocs toggles a `.dark` class on <html>; Tailwind v4's default `dark:` variant reads
+   prefers-color-scheme instead. Without this line the theme switcher moves the Fumadocs
+   colours and leaves every `dark:` utility on this site behind. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/**
+ * The palette is copied from src/styles/app.css in the application: a cool grey page, white
+ * surfaces, a blue-grey rail and one violet accent. The values are identical, so a panel
+ * screenshot shows no colour edge against this page.
+ */
+:root {
+  --ls-page: #f5f6f8;
+  --ls-panel: #fff;
+  --ls-rail: #e9edf4;
+  --ls-ink: #202839;
+  --ls-muted: #58647b;
+  --ls-line: #d8dfeb;
+  --ls-accent: #5551b2;
+  --ls-accent-ink: #fff;
+  --ls-accent-soft: #e7e5fa;
+  --ls-danger: #a33036;
+  --ls-raise: #eef1f6;
+
+  color-scheme: light;
+}
+
+.dark {
+  --ls-page: #141923;
+  --ls-panel: #1c2330;
+  --ls-rail: #181e29;
+  --ls-ink: #e4e9f3;
+  --ls-muted: #a6b1c6;
+  --ls-line: #323c50;
+  --ls-accent: #b5adff;
+  --ls-accent-ink: #141923;
+  --ls-accent-soft: #302d4c;
+  --ls-danger: #ff9fa2;
+  --ls-raise: #222a39;
+
+  color-scheme: dark;
+}
+
+@theme {
+  /* Fumadocs reads these, and each one points to a panel token above. In Fumadocs,
+     `fd-accent` is a hover background, not a brand colour. The violet is `fd-primary`. */
+  --color-fd-background: var(--ls-page);
+  --color-fd-foreground: var(--ls-ink);
+  --color-fd-muted: var(--ls-rail);
+  --color-fd-muted-foreground: var(--ls-muted);
+  --color-fd-popover: var(--ls-panel);
+  --color-fd-popover-foreground: var(--ls-ink);
+  --color-fd-card: var(--ls-panel);
+  --color-fd-card-foreground: var(--ls-ink);
+  --color-fd-border: var(--ls-line);
+  --color-fd-primary: var(--ls-accent);
+  --color-fd-primary-foreground: var(--ls-accent-ink);
+  --color-fd-secondary: var(--ls-raise);
+  --color-fd-secondary-foreground: var(--ls-ink);
+  --color-fd-accent: var(--ls-accent-soft);
+  --color-fd-accent-foreground: var(--ls-ink);
+  --color-fd-ring: var(--ls-accent);
+
+  --color-ls-page: var(--ls-page);
+  --color-ls-panel: var(--ls-panel);
+  --color-ls-rail: var(--ls-rail);
+  --color-ls-ink: var(--ls-ink);
+  --color-ls-muted: var(--ls-muted);
+  --color-ls-line: var(--ls-line);
+  --color-ls-accent: var(--ls-accent);
+  --color-ls-accent-ink: var(--ls-accent-ink);
+  --color-ls-accent-soft: var(--ls-accent-soft);
+  --color-ls-danger: var(--ls-danger);
+  --color-ls-raise: var(--ls-raise);
+
+  /* The site uses the platform UI font, like the panel. The monospace font is for anything a
+     reader would copy: commands, database names and environment variables. */
+  --font-sans: 'Segoe UI', 'Helvetica Neue', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, 'Cascadia Mono', Consolas, monospace;
+}
+
+/* neutral.css redefines the fd colours under `.dark`, which outranks @theme's :root values.
+   Repeat the mapping on both so the panel palette wins in either theme. */
+:root,
+.dark {
+  --color-fd-background: var(--ls-page);
+  --color-fd-foreground: var(--ls-ink);
+  --color-fd-muted: var(--ls-rail);
+  --color-fd-muted-foreground: var(--ls-muted);
+  --color-fd-popover: var(--ls-panel);
+  --color-fd-popover-foreground: var(--ls-ink);
+  --color-fd-card: var(--ls-panel);
+  --color-fd-card-foreground: var(--ls-ink);
+  --color-fd-border: var(--ls-line);
+  --color-fd-primary: var(--ls-accent);
+  --color-fd-primary-foreground: var(--ls-accent-ink);
+  --color-fd-secondary: var(--ls-raise);
+  --color-fd-secondary-foreground: var(--ls-ink);
+  --color-fd-accent: var(--ls-accent-soft);
+  --color-fd-accent-foreground: var(--ls-ink);
+  --color-fd-ring: var(--ls-accent);
+}
+
+html {
+  scrollbar-gutter: stable;
+  -webkit-font-smoothing: antialiased;
+}
+
+html > body[data-scroll-locked] {
+  margin-right: 0px !important;
+  --removed-body-scroll-bar-size: 0px !important;
+}
+
+table {
+  font-variant-numeric: tabular-nums;
+}
+
+@layer components {
+  /* The panel's eyebrow above each page title. */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--ls-muted);
+  }
+
+  /* The panel's h1: heavy weight, tight tracking. */
+  .display {
+    font-weight: 650;
+    letter-spacing: -0.035em;
+    line-height: 1.08;
+    text-wrap: balance;
+  }
+
+  /* The panel's brand tile: the notebook mark on the soft accent. */
+  .brand-tile {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--ls-accent-soft);
+    color: var(--ls-accent);
+    border-radius: 0.65rem;
+  }
+}
+
+#nd-page h1,
+#nd-page h2,
+#nd-page h3 {
+  letter-spacing: -0.02em;
+}
+
+#nd-page h1 {
+  font-weight: 650;
+}
+
+#nd-docs-layout [data-slot='sidebar'] {
+  font-size: 0.875rem;
+}

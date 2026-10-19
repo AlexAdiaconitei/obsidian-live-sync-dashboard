@@ -1,0 +1,135 @@
+---
+title: Dokploy
+description: Pull the released images from GHCR and run the complete stack without building on the host.
+---
+
+GitHub Actions builds, tests and publishes the panel and the backup worker to GHCR. Dokploy pulls
+those images with a Compose file that has no build contexts or source mounts.
+
+You need Linux amd64, Docker Compose 2.23.1 or later, a tailnet with MagicDNS and HTTPS
+certificates enabled, an auth key allowed to advertise `tag:notes`, a public
+[age](https://age-encryption.org/) recipient and an rclone destination for backups.
+[Before you install](/docs/install/prepare) shows how to prepare each one.
+
+## Release files
+
+Download these assets from a successfully published GitHub release:
+
+| File                           | Use                                                       |
+| ------------------------------ | --------------------------------------------------------- |
+| `compose.dokploy.yml`          | Complete stack: Tailscale, CouchDB, panel, backup worker  |
+| `compose.dokploy.existing.yml` | Panel and Tailscale only, for an existing private CouchDB |
+| `dokploy.env.example`          | The published image digests and configuration placeholders |
+
+The packages are `ghcr.io/<owner>/<repository>` and `ghcr.io/<owner>/<repository>-backup`. A
+version in `package.json` does not mean its images were published. Take the environment file from
+the release itself.
+
+## GHCR credentials
+
+Public packages pull anonymously. For private packages, create a **classic** GitHub personal access
+token with `read:packages` whose account can read both packages, and add it in Dokploy's
+**Registry** settings:
+
+| Field         | Value                                 |
+| ------------- | ------------------------------------- |
+| Registry name | `GHCR LiveSync`                       |
+| Registry URL  | `ghcr.io`                             |
+| Username      | GitHub account with package access    |
+| Password      | Classic PAT with `read:packages`      |
+| Image prefix  | Leave empty                           |
+| Server        | The server running this Compose stack |
+
+Run **Test**, then save. Git credentials do not work for image pulls, and neither does an account
+password or a fine-grained PAT. Keep the PAT in the Registry settings, never in the Compose
+Environment or in a container. It does not need `write:packages`.
+
+## Create the service
+
+<Steps>
+<Step>
+
+Create a Dokploy project and a **Docker Compose** service in Compose mode, not Swarm Stack.
+
+</Step>
+<Step>
+
+Choose provider **Raw** and paste the release's `compose.dokploy.yml`.
+
+</Step>
+<Step>
+
+Paste `dokploy.env.example` into **Environment** and replace the credential, hostname and backup
+placeholders. Keep the image digests, and leave **Create .env File** on. Set `TS_FQDN` to the
+node's exact Tailscale DNS name. Compose builds the three public URLs from it.
+
+For a second backup destination, also set `COMPOSE_PROFILES=secondary-backup` and the `SECONDARY_`
+variables. See [Two destinations](/docs/backups/instance#two-destinations).
+
+</Step>
+<Step>
+
+Turn off **Isolated Deployments** and the random suffix on names. Add no Dokploy Domains, File Mounts,
+published ports or network overrides. `panel` and `couchdb` must keep `network_mode: service:ts`.
+
+</Step>
+<Step>
+
+In **Advanced → Command**, copy the default command, keep its project name, compose path and
+environment-file flag, replace `--build` with `--no-build` and add
+`--force-recreate --wait --wait-timeout 180`. For a Raw app named `notes-example`:
+
+```text
+compose -p notes-example --env-file .env -f docker-compose.yml up -d --no-build --remove-orphans --force-recreate --wait --wait-timeout 180
+```
+
+Dokploy prepends `docker`.
+
+</Step>
+<Step>
+
+Deploy, check that all four services are healthy (five with the
+[second backup worker](/docs/backups/instance#two-destinations)) and run the [access checks](/docs/install/tailscale#check-access).
+
+</Step>
+</Steps>
+
+### Git provider
+
+With a Git provider instead of Raw, set Compose Path to `deploy/compose.dokploy.yml`, and use
+`deploy/.env` as the environment file in the custom command. Git then supplies only the
+configuration, and the images still come from GHCR. Update the digests after each release rather
+than deploying on every push.
+
+## Updates and volumes
+
+Keep the same Dokploy app and project name, because they prefix the persistent volumes. To move an
+existing stack into Dokploy, note its volume names and set the volume `name` fields to them. A new
+service that does not reuse the volumes starts with empty databases and a new Tailscale node.
+
+To update, copy both digests from the new release's environment file and redeploy with the full
+command above. See [Updating and rollback](/docs/install/updating).
+
+## Troubleshooting pulls
+
+| Symptom                        | Usually means                                         |
+| ------------------------------ | ----------------------------------------------------- |
+| `unauthorized` or `denied`     | Package or token access on the selected server        |
+| `manifest unknown`             | Unpublished tag or wrong package path                 |
+| `no matching manifest`         | Unsupported host architecture (only amd64 is built)   |
+| Administration returns 403     | The Tailscale login is not in `PANEL_ADMINS`          |
+| Owner sign-in fails            | Wrong username or sync password, or a pending account |
+| Wrong links or CSRF failures   | `TS_FQDN` differs from the node's assigned name       |
+| `ts` unhealthy                 | Tailscale authentication or connectivity              |
+
+## Existing CouchDB
+
+Use `compose.dokploy.existing.yml` and set a private HTTPS `COUCHDB_URL` with administrator
+credentials. This variant has no backup worker. Read
+[Existing server](/docs/install/existing-server) before adopting vaults.
+
+## Homelab worker network
+
+For a worker that needs Kuma, merge `backup.networks` and the root network definitions from
+`deploy/compose.homelab.yml` into the Raw file, and `backup-secondary.networks` when that worker is
+enabled. Attach only the workers to the external `dokploy-network`.

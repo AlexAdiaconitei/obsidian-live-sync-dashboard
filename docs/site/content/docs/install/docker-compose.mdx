@@ -1,0 +1,100 @@
+---
+title: Docker Compose
+description: Build the panel and worker from a checkout and run the complete stack.
+---
+
+`deploy/compose.yml` starts the Tailscale sidecar, CouchDB, the panel and the backup worker. CouchDB
+and the panel share the sidecar's network namespace, with every backend on `127.0.0.1`. Tailscale
+uses userspace networking, so the sidecar needs neither `/dev/net/tun` nor `NET_ADMIN`.
+
+Prepare the Tailscale auth key, the age recipient, the rclone destination and the secrets first,
+as in [Before you install](/docs/install/prepare).
+
+<Steps>
+<Step>
+
+### Configure
+
+```sh
+cp deploy/.env.example deploy/.env
+chmod 600 deploy/.env
+```
+
+Replace every placeholder. Set the three public URLs to the node's exact Tailscale DNS name and
+ports, and keep `PANEL_IMAGE` and `BACKUP_IMAGE` empty to build from source. See
+[Configuration](/docs/reference/configuration) for each variable.
+
+</Step>
+<Step>
+
+### Start
+
+```sh
+docker compose -p livesync --env-file deploy/.env -f deploy/compose.yml config --quiet
+docker compose -p livesync --env-file deploy/.env -f deploy/compose.yml up -d --build --wait --wait-timeout 180
+docker compose -p livesync --env-file deploy/.env -f deploy/compose.yml ps
+```
+
+With `--wait`, Compose fails when a health check fails, instead of reporting success once the
+containers exist. If it times out, read `logs ts`, `logs couchdb` and `logs backup`. Healthy
+containers do not prove that Obsidian can sync, or that the worker can write to the rclone
+destination.
+
+The Serve and CouchDB settings are inline Compose configs, not files mounted from the checkout, so
+recreating the containers keeps them. The panel never changes CouchDB's global configuration.
+
+</Step>
+<Step>
+
+### Grant access
+
+Merge `deploy/tailscale/policy.hujson` into your tailnet policy and authorise Serve if Tailscale
+asks. See [Tailscale access](/docs/install/tailscale).
+
+</Step>
+</Steps>
+
+<Callout type="warn">
+  Keep the project name (`-p livesync`) the same on every update. It scopes the images and the
+  named volumes; a new name starts with empty databases and a new Tailscale node.
+</Callout>
+
+## Volumes
+
+| Volume                 | Holds                                                    |
+| ---------------------- | -------------------------------------------------------- |
+| `ts-state`             | Tailscale node identity                                  |
+| `couchdb-data`         | All databases, including `_users` and the panel registry |
+| `couchdb-config`       | CouchDB administrator and local settings                 |
+| `rclone-conf`          | The worker's rclone configuration and refreshed tokens   |
+| `backup-status`        | Worker results, read-only in the panel                   |
+| `backup-requests`      | Backup request queue                                     |
+| `backup-work`          | Encrypted archives while they are uploaded               |
+| `personal-backup-work` | Encrypted owner archives during upload                   |
+
+With the optional [second backup worker](/docs/backups/instance#two-destinations), Compose adds
+`secondary-rclone-conf`, `secondary-backup-status`, `secondary-backup-requests` and
+`secondary-backup-work` with the same roles.
+
+## Registry database
+
+For a new installation, choose a `PANEL_DB` name that does not exist yet. If the database exists
+without the panel's schema document, startup fails with `registry_database_not_owned`, because the
+panel never claims a database it did not create. Pick another name, or restore the matching
+registry backup.
+
+## Runtime hardening
+
+The panel runs as UID 1000 on a read-only root filesystem, with no Linux capabilities, no new
+privileges and size-limited temporary storage. Node.js permissions let it read its code,
+dependencies and assets, and write only backup requests. With personal Drive backups enabled, it
+may also start `age` and use its work volume.
+
+Node.js does not limit network destinations or environment reads. Keep CouchDB private, and use
+firewall rules if you need to limit outbound traffic. The stack runs a single panel instance.
+
+## Homelab overlay
+
+To let the worker reach an Uptime Kuma instance on an existing external `dokploy-network`, add
+`-f deploy/compose.homelab.yml` to every command. Only the worker joins that network. Keep the
+existing monitor accounts, the grant to 443 and the Kuma checks.
