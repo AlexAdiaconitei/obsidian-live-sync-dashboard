@@ -5,6 +5,14 @@ section. This project follows Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+### Security
+
+- Updated Hono to 4.13.19 and its Node.js server to 2.1.9. The fixes cover CSRF checks on
+  hyperlink-auditing requests, form validation of `multipart/form-data`, middleware skipped by
+  some routes, and request paths with backslashes.
+- Updated markdown-it to 14.3.3 and minimatch to 11.0.9, which fix denial-of-service issues in the
+  sync library's dependencies.
+
 ## [1.0.0] - 2026-10-20
 
 First public release.

@@ -24,3 +24,6 @@ allowBuilds:
 overrides:
   pouchdb-core>uuid: 11.1.1
   pouchdb-utils>uuid: 11.1.1
+  # Security fixes the dependants' ranges do not reach yet (GHSA-gfr2-rv44-r23c, GHSA-g3hv-75wg-m249).
+  markdown-it: 14.3.3
+  minimatch: 11.0.9
