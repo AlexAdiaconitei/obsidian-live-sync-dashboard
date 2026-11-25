@@ -7,6 +7,8 @@ import { Section } from '@/components/home/section';
 import { CopyCommand } from '@/components/home/copy-command';
 import { PortalSplit } from '@/components/home/portal-split';
 import { BrandTile } from '@/components/notebook-mark';
+import { AboutCard } from '@/components/about/AboutCard';
+import { withBasePath } from '@/lib/base-path';
 import { appName, fullName, gitUrl, tagline } from '@/lib/shared';
 
 export const metadata: Metadata = {
@@ -92,6 +94,14 @@ export default function HomePage() {
           </Link>
         </div>
       </section>
+
+      <Section
+        id="about"
+        label="About"
+        title="Behind the project"
+      >
+        <AboutCard photo={withBasePath('/alex.webp')} />
+      </Section>
     </main>
   );
 }

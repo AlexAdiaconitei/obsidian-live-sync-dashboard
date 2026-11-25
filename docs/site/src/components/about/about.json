@@ -1,0 +1,29 @@
+{
+	"name": "Alex Adiaconitei",
+	"initials": "AA",
+	"bio": {
+		"es": "Software engineer. En el trabajo hago backend con Java y Spring Boot; en casa construyo mis propias herramientas con TypeScript, Rust o lo que pida cada problema, y mantengo un VPS y un homelab con los que aprendo infraestructura.",
+		"en": "Software engineer. At work I do backend with Java and Spring Boot; at home I build my own tools in TypeScript, Rust or whatever each problem needs, and I run a VPS and a homelab to learn infrastructure."
+	},
+	"facts": {
+		"es": ["Software Engineer", "TypeScript, Rust, Java, Python", "Remoto"],
+		"en": ["Software Engineer", "TypeScript, Rust, Java, Python", "Remote"]
+	},
+	"links": [
+		{
+			"label": "GitHub",
+			"icon": "github",
+			"url": "https://github.com/AlexAdiaconitei"
+		},
+		{
+			"label": "LinkedIn",
+			"icon": "linkedin",
+			"url": "https://www.linkedin.com/in/alexadiaconitei/"
+		},
+		{
+			"label": "Ko-fi",
+			"icon": "kofi",
+			"url": "https://ko-fi.com/K3Q5236GOO"
+		}
+	]
+}

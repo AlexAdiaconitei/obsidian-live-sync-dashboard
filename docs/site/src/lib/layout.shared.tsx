@@ -17,6 +17,7 @@ export function baseOptions(): BaseLayoutProps {
       { text: 'Documentation', url: '/docs', active: 'nested-url', on: 'nav' },
       { text: 'Deploy', url: '/docs/install/dokploy', on: 'nav' },
       { text: 'Backups', url: '/docs/backups/instance', on: 'nav' },
+      { text: 'About', url: '/#about', on: 'nav' },
     ],
     githubUrl: gitUrl,
   };

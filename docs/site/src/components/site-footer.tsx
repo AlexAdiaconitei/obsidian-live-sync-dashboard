@@ -10,6 +10,10 @@ export function SiteFooter() {
           <a href={licence.file} className="hover:text-ls-ink">
             {licence.spdx} License
           </a>{' '}
+          · Built by{' '}
+          <a href="https://github.com/AlexAdiaconitei" className="hover:text-ls-ink">
+            Alex Adiaconitei
+          </a>{' '}
           · Written with AI assistance (GPT 6.1-Sol and Claude Opus 5.5) ·{' '}
           <a href={gitUrl} className="hover:text-ls-ink">
             Source on GitHub

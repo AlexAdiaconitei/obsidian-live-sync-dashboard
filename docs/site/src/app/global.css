@@ -1,6 +1,7 @@
 @import 'tailwindcss';
 @import 'fumadocs-ui/css/neutral.css';
 @import 'fumadocs-ui/css/preset.css';
+@import '../components/about/about-card.css';
 
 /* Fumadocs toggles a `.dark` class on <html>; Tailwind v4's default `dark:` variant reads
    prefers-color-scheme instead. Without this line the theme switcher moves the Fumadocs
