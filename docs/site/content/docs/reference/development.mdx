@@ -50,7 +50,8 @@ Install `age` and `age-keygen` on PATH for the encryption tests.
   release's.
 - `allowBuilds` keeps install scripts disabled. esbuild and Tailwind use the binaries from their
   platform packages, so no lifecycle script needs to run.
-- `overrides` pins PouchDB's UUID dependency to the patched 11.1.1.
+- `overrides` pins patched versions that the dependants' ranges do not reach yet: PouchDB's UUID
+  dependency (11.1.1), markdown-it (14.3.3) and minimatch (11.0.9).
 
 The container build installs the same pnpm with `scripts/bootstrap-pnpm.sh`, which then removes the
 base image's npm, Yarn and Corepack. CI uses `pnpm/action-setup`, which reads `packageManager`.
@@ -59,7 +60,8 @@ base image's npm, Yarn and Corepack. CI uses `pnpm/action-setup`, which reads `p
 
 `package.json` holds the version and `CHANGELOG.md` the notes. Pushing a matching `vX.Y.Z` tag runs
 the release workflow: it tests, audits and smoke-tests both images, pushes them to GHCR, then
-creates the GitHub release with the Dokploy assets.
+creates the GitHub release with the Dokploy assets. Stable releases also move the `X.Y` and
+`latest` tags; deployments should still pin a version or digest.
 
 ## This site
 

@@ -18,7 +18,7 @@ the [version notes](#version-notes) for every release between yours and the new 
 
 - **Dokploy:** copy `PANEL_IMAGE` and `BACKUP_IMAGE` from the new release's `dokploy.env.example`
   into the Environment. If the release changed `compose.dokploy.yml`, paste the new file too.
-- **Docker Compose from source:** check out the release tag, for example `git checkout v1.0.0`.
+- **Docker Compose from source:** check out the release tag, for example `git checkout v1.0.1`.
 - **Docker Compose with prebuilt images:** set `PANEL_IMAGE` and `BACKUP_IMAGE` to the release's
   digests, set both pull policies to `always`, and log the host in to GHCR if the packages are
   private. Never use `latest`.
