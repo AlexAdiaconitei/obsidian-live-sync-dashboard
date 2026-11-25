@@ -5,6 +5,8 @@ section. This project follows Keep a Changelog and Semantic Versioning.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-25
+
 ### Security
 
 - Updated Hono to 4.13.19 and its Node.js server to 2.1.9. The fixes cover CSRF checks on
